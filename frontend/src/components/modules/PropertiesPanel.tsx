@@ -1,0 +1,757 @@
+"use client";
+
+import { motion } from "framer-motion";
+import { Settings, Sliders, Image as ImageIcon, Type, FileText, Users, Layout, Video, Mic, Music, Film, Info, StickyNote, Paintbrush, Wand2, Sparkles } from "lucide-react";
+import { useProjectStore } from "@/store/projectStore";
+import { useState, useEffect } from "react";
+import { api, API_URL } from "@/lib/api";
+import { getAssetUrl } from "@/lib/utils";
+
+interface PropertiesPanelProps {
+    activeStep: string;
+}
+
+export default function PropertiesPanel({ activeStep }: PropertiesPanelProps) {
+    const currentProject = useProjectStore((state) => state.currentProject);
+
+    // Hide panel for Motion step as it has its own sidebar
+    if (activeStep === "motion" || activeStep === "assembly") return null;
+
+    const renderContent = () => {
+        switch (activeStep) {
+            case "script":
+                return <ScriptInspector project={currentProject} />;
+            case "assets":
+                return <AssetsInspector project={currentProject} />;
+            case "storyboard":
+                return <StoryboardInspector />;
+            case "motion":
+                return <MotionInspector />;
+            case "audio":
+                return <AudioInspector project={currentProject} />;
+            case "mix":
+                return <MixInspector />;
+            case "export":
+                return <ExportInspector />;
+            default:
+                return <div className="p-4 text-gray-500">Select a step to view properties.</div>;
+        }
+    };
+
+    return (
+        <motion.aside
+            initial={{ x: 100, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            className="w-80 h-screen border-l border-glass-border bg-black/40 backdrop-blur-xl flex flex-col z-50"
+        >
+            <div className="p-4 border-b border-glass-border flex items-center justify-between">
+                <h2 className="font-display font-bold text-white flex items-center gap-2">
+                    <Info size={16} className="text-primary" /> Context
+                </h2>
+                <span className="text-xs font-mono text-gray-500 uppercase">{activeStep}</span>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+                {renderContent()}
+            </div>
+        </motion.aside>
+    );
+}
+
+// --- Sub-Inspectors ---
+
+function ScriptInspector({ project }: { project: any }) {
+    if (!project) return null;
+    const wordCount = project.originalText?.length || 0;
+    const charCount = project.characters?.length || 0;
+    const sceneCount = project.scenes?.length || 0;
+
+    return (
+        <div className="space-y-6">
+            <div className="space-y-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <FileText size={14} /> Project Stats
+                </h3>
+                <div className="grid grid-cols-2 gap-2">
+                    <StatBox label="Words" value={wordCount} />
+                    <StatBox label="Chars" value={charCount} />
+                    <StatBox label="Scenes" value={sceneCount} />
+                    <StatBox label="Est. Dur" value="~2m" />
+                </div>
+            </div>
+
+            <div className="space-y-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <StickyNote size={14} /> Quick Notes
+                </h3>
+                <textarea
+                    className="w-full h-32 bg-white/5 border border-white/10 rounded-lg p-3 text-xs text-gray-300 resize-none focus:outline-none focus:border-primary/50"
+                    placeholder="Jot down ideas here..."
+                />
+            </div>
+        </div>
+    );
+}
+
+function AssetsInspector({ project }: { project: any }) {
+    const styles = useProjectStore((state) => state.styles);
+    const selectedStyleId = useProjectStore((state) => state.selectedStyleId);
+    const updateStylePrompt = useProjectStore((state) => state.updateStylePrompt);
+
+    const selectedStyle = styles.find(s => s.id === selectedStyleId);
+    const [isEditing, setIsEditing] = useState(false);
+    const [prompt, setPrompt] = useState("");
+
+    useEffect(() => {
+        if (selectedStyle) {
+            setPrompt(selectedStyle.prompt);
+        }
+    }, [selectedStyle]);
+
+    const handleSave = () => {
+        if (selectedStyle) {
+            updateStylePrompt(selectedStyle.id, prompt);
+            setIsEditing(false);
+        }
+    };
+
+    return (
+        <div className="space-y-6">
+            <div className="space-y-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Users size={14} /> Asset Overview
+                </h3>
+                <div className="text-xs text-gray-400">
+                    Manage your project assets and global style settings.
+                </div>
+            </div>
+
+            {/* Style Editor Section */}
+            <div className="space-y-4 pt-4 border-t border-white/10">
+                <div className="flex items-center gap-2 mb-2">
+                    <Paintbrush className="text-primary" size={16} />
+                    <h3 className="font-bold text-white text-sm">Global Style</h3>
+                </div>
+
+                <div>
+                    <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Selected Style</label>
+                    <div className={`text-sm font-bold text-white bg-gradient-to-r ${selectedStyle?.color || 'from-gray-700 to-gray-900'} p-3 rounded-lg border border-white/10 shadow-lg`}>
+                        {selectedStyle?.name || "None"}
+                    </div>
+                </div>
+
+                <div>
+                    <div className="flex justify-between items-center mb-2">
+                        <label className="text-xs font-bold text-gray-500 uppercase">Style Prompt</label>
+                        {!isEditing && (
+                            <button
+                                onClick={() => setIsEditing(true)}
+                                className="text-xs text-primary hover:text-primary/80 font-bold"
+                            >
+                                Edit
+                            </button>
+                        )}
+                    </div>
+
+                    {isEditing ? (
+                        <div className="space-y-2">
+                            <textarea
+                                value={prompt}
+                                onChange={(e) => setPrompt(e.target.value)}
+                                className="w-full h-32 bg-black/40 border border-primary/50 rounded-lg p-3 text-xs text-gray-300 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                                placeholder="Enter style description..."
+                            />
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => {
+                                        setIsEditing(false);
+                                        if (selectedStyle) setPrompt(selectedStyle.prompt);
+                                    }}
+                                    className="flex-1 py-1.5 bg-white/5 hover:bg-white/10 text-gray-400 text-xs rounded-md font-bold transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={handleSave}
+                                    className="flex-1 py-1.5 bg-primary hover:bg-primary/90 text-white text-xs rounded-md font-bold transition-colors"
+                                >
+                                    Save
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="bg-black/40 border border-white/5 rounded-lg p-3 text-xs text-gray-400 leading-relaxed min-h-[80px]">
+                            {selectedStyle?.prompt}
+                        </div>
+                    )}
+                </div>
+
+                <div className="pt-2">
+                    <p className="text-[10px] text-gray-500 leading-relaxed">
+                        Tip: This prompt will be appended to all asset generation prompts. Use it to define lighting, art style, and atmosphere.
+                    </p>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function StoryboardInspector() {
+    const currentProject = useProjectStore((state) => state.currentProject);
+    const updateProject = useProjectStore((state) => state.updateProject);
+    const selectedFrameId = useProjectStore((state) => state.selectedFrameId);
+
+    if (!currentProject) return null;
+
+    const selectedFrame = currentProject?.frames?.find((f: any) => f.id === selectedFrameId);
+
+    const updateFrame = (data: any) => {
+        if (!currentProject || !selectedFrame) return;
+        const updatedFrames = currentProject.frames.map((f: any) =>
+            f.id === selectedFrameId ? { ...f, ...data } : f
+        );
+        updateProject(currentProject.id, { frames: updatedFrames });
+    };
+
+    const handleComposePrompt = () => {
+        if (!selectedFrame || !currentProject) return;
+
+        const scene = currentProject.scenes?.find((s: any) => s.id === selectedFrame.scene_id);
+        const characters = currentProject.characters?.filter((c: any) => selectedFrame.character_ids?.includes(c.id));
+
+        // Construct prompt based on User Guide: Motion + Camera (+ Context)
+        let promptParts = [];
+
+        // 1. Motion / Action (Subject + Action)
+        let motionPart = "";
+        if (characters && characters.length > 0) {
+            const charDescriptions = characters.map((c: any) => {
+                let desc = `${c.name} (${c.description}`;
+                if (c.clothing) desc += `, wearing ${c.clothing}`;
+                desc += `)`;
+                return desc;
+            }).join(", ");
+            motionPart += `Characters: ${charDescriptions}. `;
+        }
+        motionPart += `${selectedFrame.action_description || ""}`;
+        if (selectedFrame.facial_expression) motionPart += `, ${selectedFrame.facial_expression}`;
+        if (motionPart.trim()) promptParts.push(motionPart.trim());
+
+        // 2. Camera (Movement + Angle)
+        let cameraPart = "";
+        if (selectedFrame.camera_angle) cameraPart += `${selectedFrame.camera_angle}`;
+        if (selectedFrame.camera_movement) {
+            if (cameraPart) cameraPart += ", ";
+            cameraPart += `${selectedFrame.camera_movement}`;
+        }
+        if (selectedFrame.composition) {
+            if (cameraPart) cameraPart += ", ";
+            cameraPart += `${selectedFrame.composition}`;
+        }
+        if (cameraPart.trim()) promptParts.push(cameraPart.trim());
+
+        // 3. Scene / Context (Environment + Atmosphere)
+        let scenePart = "";
+        if (scene) {
+            scenePart += `${scene.description || scene.name}`;
+            if (scene.time_of_day) scenePart += `, ${scene.time_of_day}`;
+            if (scene.lighting_mood) scenePart += `, ${scene.lighting_mood}`;
+        }
+        if (selectedFrame.atmosphere) {
+            if (scenePart) scenePart += ", ";
+            scenePart += `${selectedFrame.atmosphere}`;
+        }
+        if (scenePart.trim()) promptParts.push(scenePart.trim());
+
+        // Join with periods for clear separation
+        const finalPrompt = promptParts.join(" . ");
+        updateFrame({ image_prompt: finalPrompt });
+    };
+
+    const toggleCharacter = (charId: string) => {
+        const currentIds = selectedFrame.character_ids || [];
+        const newIds = currentIds.includes(charId)
+            ? currentIds.filter((id: string) => id !== charId)
+            : [...currentIds, charId];
+        updateFrame({ character_ids: newIds });
+    };
+
+    const [polishedPrompts, setPolishedPrompts] = useState<Record<string, string>>({});
+    const [isPolishing, setIsPolishing] = useState(false);
+
+    const polishedPrompt = selectedFrame ? polishedPrompts[selectedFrame.id] : null;
+
+    const handlePolish = async () => {
+        if (!selectedFrame || !currentProject) return;
+        setIsPolishing(true);
+
+        // Construct assets list for context
+        const assets = [];
+        if (selectedFrame.scene_id) {
+            const scene = currentProject.scenes?.find((s: any) => s.id === selectedFrame.scene_id);
+            if (scene) assets.push({ type: 'Scene', name: scene.name, description: scene.description });
+        }
+        if (selectedFrame.character_ids) {
+            selectedFrame.character_ids.forEach((cid: string) => {
+                const char = currentProject.characters?.find((c: any) => c.id === cid);
+                if (char) assets.push({ type: 'Character', name: char.name, description: char.description });
+            });
+        }
+        if (selectedFrame.prop_ids) {
+            selectedFrame.prop_ids.forEach((pid: string) => {
+                const prop = currentProject.props?.find((p: any) => p.id === pid);
+                if (prop) assets.push({ type: 'Prop', name: prop.name, description: prop.description });
+            });
+        }
+
+        const draft = selectedFrame.image_prompt || selectedFrame.action_description;
+
+        try {
+            const res = await api.polishPrompt(draft, assets);
+            if (res.polished_prompt) {
+                setPolishedPrompts(prev => ({
+                    ...prev,
+                    [selectedFrame.id]: res.polished_prompt
+                }));
+            }
+        } catch (err) {
+            console.error("Polish failed", err);
+            alert("Prompt polishing failed");
+        } finally {
+            setIsPolishing(false);
+        }
+    };
+
+    if (!selectedFrame) {
+        return (
+            <div className="space-y-6">
+                <div className="p-4 bg-white/5 rounded-lg border border-white/10 text-center text-gray-500 text-xs">
+                    Select a frame to edit its details.
+                </div>
+
+                <div className="space-y-3">
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        <Layout size={14} /> Global Settings
+                    </h3>
+                    <div className="space-y-2">
+                        <label className="text-xs text-gray-400">Aspect Ratio</label>
+                        <div className="grid grid-cols-3 gap-2">
+                            {["16:9", "9:16", "1:1"].map((ratio) => (
+                                <button
+                                    key={ratio}
+                                    onClick={() => updateProject(currentProject.id, { aspectRatio: ratio })}
+                                    className={`px-2 py-1.5 rounded text-xs border transition-all ${currentProject.aspectRatio === ratio
+                                        ? "bg-primary/20 text-primary border-primary/30"
+                                        : "bg-white/5 text-gray-400 border-white/10 hover:bg-white/10"
+                                        }`}
+                                >
+                                    {ratio}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6">
+            <div className="space-y-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Layout size={14} /> Frame Editor
+                </h3>
+                <div className="text-xs text-gray-400">
+                    Editing Frame {currentProject?.frames?.findIndex((f: any) => f.id === selectedFrameId) + 1}
+                </div>
+            </div>
+
+            {/* Action Description */}
+            <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-500 uppercase">Action / Visuals</label>
+                <textarea
+                    className="w-full h-24 bg-black/20 border border-white/10 rounded-lg p-3 text-xs text-gray-300 resize-none focus:outline-none focus:border-primary/50"
+                    value={selectedFrame.action_description || ""}
+                    onChange={(e) => updateFrame({ action_description: e.target.value })}
+                    placeholder="Describe the action..."
+                />
+            </div>
+
+            {/* Dialogue */}
+            <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-500 uppercase">Dialogue</label>
+                <textarea
+                    className="w-full h-16 bg-black/20 border border-white/10 rounded-lg p-3 text-xs text-gray-300 resize-none focus:outline-none focus:border-primary/50"
+                    value={selectedFrame.dialogue || ""}
+                    onChange={(e) => updateFrame({ dialogue: e.target.value })}
+                    placeholder="Speaker: Content"
+                />
+            </div>
+
+            {/* Reference Assets */}
+            <div className="space-y-2">
+                {(() => {
+                    // Calculate current reference count
+                    const selectedScene = currentProject?.scenes?.find((s: any) => s.id === selectedFrame.scene_id);
+                    const sceneHasImage = selectedScene?.image_url;
+
+                    const selectedChars = currentProject?.characters?.filter((c: any) => selectedFrame.character_ids?.includes(c.id));
+                    const charImageCount = selectedChars?.filter((c: any) => c.image_url || c.avatar_url).length || 0;
+
+                    const selectedProps = currentProject?.props?.filter((p: any) => selectedFrame.prop_ids?.includes(p.id));
+                    const propImageCount = selectedProps?.filter((p: any) => p.image_url).length || 0;
+
+                    const referenceCount = (sceneHasImage ? 1 : 0) + charImageCount + propImageCount;
+                    const isLimitReached = referenceCount >= 3;
+
+                    return (
+                        <>
+                            <div className="flex justify-between items-center">
+                                <label className="text-xs font-bold text-gray-500 uppercase">Reference Assets</label>
+                                <span className={`text-[10px] ${isLimitReached ? "text-yellow-500 font-bold" : "text-gray-500"}`}>
+                                    {referenceCount}/3 Images
+                                </span>
+                            </div>
+
+                            {/* Scene Selector */}
+                            <div className="mb-2 space-y-2">
+                                <label className="text-[10px] font-bold text-gray-500 uppercase">Scene</label>
+                                <select
+                                    className="w-full bg-black/20 border border-white/10 rounded p-2 text-xs text-gray-300 focus:outline-none"
+                                    value={selectedFrame.scene_id || ""}
+                                    onChange={(e) => {
+                                        // Check if selecting this scene would exceed limit
+                                        // Actually, replacing a scene is always fine unless we treat scene as optional toggle.
+                                        // Here it's a dropdown, so we always have 0 or 1 scene. 
+                                        // If we switch to a scene with image from one without, we might exceed limit.
+                                        const newSceneId = e.target.value;
+                                        const newScene = currentProject?.scenes?.find((s: any) => s.id === newSceneId);
+                                        const newSceneHasImage = newScene?.image_url;
+
+                                        // Predicted count: (newScene ? 1 : 0) + charCount + propCount
+                                        // If current scene had image, we lose 1, gain 1 (net 0).
+                                        // If current didn't, we gain 1.
+                                        const predictedCount = (newSceneHasImage ? 1 : 0) + charImageCount + propImageCount;
+
+                                        if (predictedCount > 3) {
+                                            alert("Cannot select this scene: Reference image limit (3) would be exceeded. Deselect some characters or props first.");
+                                            return;
+                                        }
+                                        updateFrame({ scene_id: newSceneId });
+                                    }}
+                                >
+                                    <option value="">Select Scene...</option>
+                                    {currentProject?.scenes?.map((scene: any) => (
+                                        <option key={scene.id} value={scene.id}>{scene.name}</option>
+                                    ))}
+                                </select>
+
+                                {/* Show Scene Description if selected */}
+                                {selectedScene?.description && (
+                                    <div className="bg-white/5 p-2 rounded text-[10px] text-gray-400 italic border border-white/5">
+                                        <span className="font-bold not-italic text-gray-500">Scene: </span>
+                                        {selectedScene.description}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Character Toggles */}
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-bold text-gray-500 uppercase">Characters</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {currentProject?.characters?.map((char: any) => {
+                                        const isSelected = selectedFrame.character_ids?.includes(char.id);
+                                        const hasImage = char.image_url || char.avatar_url;
+                                        // Disable if not selected, has image, and limit reached
+                                        const isDisabled = !isSelected && hasImage && isLimitReached;
+
+                                        return (
+                                            <button
+                                                key={char.id}
+                                                disabled={isDisabled}
+                                                onClick={() => {
+                                                    if (isDisabled) return;
+                                                    toggleCharacter(char.id);
+                                                }}
+                                                className={`flex items-center gap-2 p-2 rounded border text-xs transition-all ${isSelected
+                                                    ? "bg-primary/20 border-primary text-white"
+                                                    : isDisabled
+                                                        ? "bg-black/10 border-white/5 text-gray-600 cursor-not-allowed opacity-50"
+                                                        : "bg-black/20 border-white/10 text-gray-400 hover:bg-white/5"
+                                                    }`}
+                                            >
+                                                <div className="w-4 h-4 rounded-full bg-gray-700 overflow-hidden">
+                                                    {char.avatar_url && <img src={getAssetUrl(char.avatar_url)} className="w-full h-full object-cover" />}
+                                                </div>
+                                                <span className="truncate">{char.name}</span>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* Show Selected Characters Descriptions */}
+                                {selectedChars && selectedChars.length > 0 && (
+                                    <div className="space-y-1">
+                                        {selectedChars.map((char: any) => (
+                                            <div key={char.id} className="bg-white/5 p-2 rounded text-[10px] text-gray-400 italic border border-white/5">
+                                                <span className="font-bold not-italic text-gray-500">{char.name}: </span>
+                                                {char.description}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Prop Toggles */}
+                            {currentProject?.props && currentProject.props.length > 0 && (
+                                <div className="space-y-2">
+                                    <label className="text-[10px] font-bold text-gray-500 uppercase">Props</label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {currentProject.props.map((prop: any) => {
+                                            const isSelected = selectedFrame.prop_ids?.includes(prop.id);
+                                            const hasImage = prop.image_url;
+                                            const isDisabled = !isSelected && hasImage && isLimitReached;
+
+                                            return (
+                                                <button
+                                                    key={prop.id}
+                                                    disabled={isDisabled}
+                                                    onClick={() => {
+                                                        if (isDisabled) return;
+                                                        // Toggle Prop Logic
+                                                        const currentProps = selectedFrame.prop_ids || [];
+                                                        const newProps = currentProps.includes(prop.id)
+                                                            ? currentProps.filter((id: string) => id !== prop.id)
+                                                            : [...currentProps, prop.id];
+                                                        updateFrame({ prop_ids: newProps });
+                                                    }}
+                                                    className={`flex items-center gap-2 p-2 rounded border text-xs transition-all ${isSelected
+                                                        ? "bg-primary/20 border-primary text-white"
+                                                        : isDisabled
+                                                            ? "bg-black/10 border-white/5 text-gray-600 cursor-not-allowed opacity-50"
+                                                            : "bg-black/20 border-white/10 text-gray-400 hover:bg-white/5"
+                                                        }`}
+                                                >
+                                                    <div className="w-4 h-4 rounded bg-gray-700 overflow-hidden flex-shrink-0">
+                                                        {prop.image_url && <img src={prop.image_url} className="w-full h-full object-cover" />}
+                                                    </div>
+                                                    <span className="truncate">{prop.name}</span>
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+
+                                    {/* Show Selected Props Descriptions */}
+                                    {(() => {
+                                        const selectedProps = currentProject.props.filter((p: any) => selectedFrame.prop_ids?.includes(p.id));
+                                        if (selectedProps && selectedProps.length > 0) {
+                                            return (
+                                                <div className="space-y-1">
+                                                    {selectedProps.map((prop: any) => (
+                                                        <div key={prop.id} className="bg-white/5 p-2 rounded text-[10px] text-gray-400 italic border border-white/5">
+                                                            <span className="font-bold not-italic text-gray-500">{prop.name}: </span>
+                                                            {prop.description}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            );
+                                        }
+                                        return null;
+                                    })()}
+                                </div>
+                            )}
+                        </>
+                    );
+                })()}
+            </div>
+
+            {/* Camera Controls */}
+            <div className="space-y-2">
+                <label className="text-xs font-bold text-gray-500 uppercase">Camera</label>
+                <div className="grid grid-cols-1 gap-2">
+                    <select
+                        className="bg-black/20 border border-white/10 rounded p-2 text-xs text-gray-300 focus:outline-none"
+                        value={selectedFrame.camera_angle || ""}
+                        onChange={(e) => updateFrame({ camera_angle: e.target.value })}
+                    >
+                        <option value="">Angle...</option>
+                        <option value="Wide Shot">Wide Shot</option>
+                        <option value="Medium Shot">Medium Shot</option>
+                        <option value="Close Up">Close Up</option>
+                        <option value="Low Angle">Low Angle</option>
+                        <option value="High Angle">High Angle</option>
+                        <option value="Over the Shoulder">Over the Shoulder</option>
+                    </select>
+                </div>
+            </div>
+
+            {/* Prompt */}
+            <div className="space-y-2">
+                <div className="flex justify-between items-center">
+                    <label className="text-xs font-bold text-gray-500 uppercase">Image Prompt</label>
+                    <button
+                        onClick={handleComposePrompt}
+                        className="flex items-center gap-1 text-[10px] bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-white transition-colors"
+                        title="Auto-generate prompt from metadata"
+                    >
+                        <Wand2 size={10} /> Auto-Compose
+                    </button>
+                    <button
+                        onClick={handlePolish}
+                        disabled={isPolishing}
+                        className="flex items-center gap-1 text-[10px] bg-purple-600 hover:bg-purple-700 px-2 py-1 rounded text-white transition-colors ml-2 disabled:opacity-50"
+                        title="AI Polish Prompt"
+                    >
+                        {isPolishing ? <Sparkles size={10} className="animate-spin" /> : <Sparkles size={10} />} Polish
+                    </button>
+                </div>
+                <textarea
+                    className="w-full h-32 bg-black/20 border border-white/10 rounded-lg p-3 text-xs text-gray-300 resize-none focus:outline-none focus:border-primary/50"
+                    value={selectedFrame.image_prompt || ""}
+                    onChange={(e) => updateFrame({ image_prompt: e.target.value })}
+                    placeholder="Full image generation prompt..."
+                />
+
+                {/* Polished Result Display */}
+                {polishedPrompt && (
+                    <motion.div
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-3 mt-2"
+                    >
+                        <div className="flex justify-between items-start mb-2">
+                            <span className="text-xs font-bold text-purple-400 flex items-center gap-1">
+                                <Wand2 size={12} /> AI Suggestion
+                            </span>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(polishedPrompt);
+                                        alert("Copied to clipboard");
+                                    }}
+                                    className="text-[10px] text-gray-400 hover:text-white bg-black/20 px-2 py-1 rounded"
+                                >
+                                    Copy
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        updateFrame({ image_prompt: polishedPrompt });
+                                        setPolishedPrompts(prev => {
+                                            const newState = { ...prev };
+                                            delete newState[selectedFrame.id];
+                                            return newState;
+                                        });
+                                    }}
+                                    className="text-[10px] text-white bg-purple-600 hover:bg-purple-500 px-2 py-1 rounded font-bold"
+                                >
+                                    Apply
+                                </button>
+                            </div>
+                        </div>
+                        <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap">
+                            {polishedPrompt}
+                        </p>
+                    </motion.div>
+                )}
+            </div>
+        </div >
+    );
+}
+
+function MotionInspector() {
+    return (
+        <div className="space-y-6">
+            <div className="space-y-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Video size={14} /> Motion Params
+                </h3>
+                <div className="space-y-4">
+                    <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-gray-400">
+                            <span>Motion Bucket</span>
+                            <span>127</span>
+                        </div>
+                        <input type="range" className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer" />
+                    </div>
+                    <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-gray-400">
+                            <span>FPS</span>
+                            <span>24</span>
+                        </div>
+                        <input type="range" className="w-full h-1 bg-white/10 rounded-lg appearance-none cursor-pointer" />
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function AudioInspector({ project }: { project: any }) {
+    const assignedCount = project?.characters?.filter((c: any) => c.voice_id).length || 0;
+    const totalCount = project?.characters?.length || 0;
+
+    return (
+        <div className="space-y-6">
+            <div className="space-y-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Mic size={14} /> Casting Status
+                </h3>
+                <div className="flex items-center gap-2">
+                    <div className="flex-1 h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div
+                            className="h-full bg-green-500 transition-all duration-500"
+                            style={{ width: `${(assignedCount / totalCount) * 100}%` }}
+                        />
+                    </div>
+                    <span className="text-xs font-mono text-gray-400">{assignedCount}/{totalCount}</span>
+                </div>
+                <p className="text-xs text-gray-500">
+                    {assignedCount === totalCount ? "All characters casted." : "Some characters need voices."}
+                </p>
+            </div>
+        </div>
+    );
+}
+
+function MixInspector() {
+    return (
+        <div className="space-y-6">
+            <div className="space-y-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Music size={14} /> Track Inspector
+                </h3>
+                <div className="p-4 bg-white/5 rounded-lg border border-white/10 text-center text-xs text-gray-500">
+                    Select a clip on the timeline to view details.
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function ExportInspector() {
+    return (
+        <div className="space-y-6">
+            <div className="space-y-3">
+                <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <Film size={14} /> Export History
+                </h3>
+                <div className="space-y-2">
+                    <div className="p-2 bg-white/5 rounded border border-white/10 flex justify-between items-center">
+                        <span className="text-xs text-gray-300">Project_v1.mp4</span>
+                        <span className="text-[10px] text-gray-500">2h ago</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function StatBox({ label, value }: { label: string, value: string | number }) {
+    return (
+        <div className="bg-white/5 border border-white/10 rounded p-2 text-center">
+            <div className="text-lg font-bold text-white">{value}</div>
+            <div className="text-[10px] text-gray-500 uppercase">{label}</div>
+        </div>
+    );
+}

@@ -1,0 +1,68 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# PyArmor
+obfuscated/
+.pyarmor/
+dist_*/
+
+# Environment
+.env
+.env.local
+.venv
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Project specific
+*.log
+*.db
+*.sqlite3
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Build outputs
+dist_mac/
+dist_windows/
+*.app
+*.exe
+*.dmg
+*.pkg
+
+# OS
+Thumbs.db
+
+static/

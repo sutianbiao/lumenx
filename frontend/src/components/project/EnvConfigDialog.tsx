@@ -1,0 +1,237 @@
+"use client";
+
+import { useState, useEffect } from "react";
+import { X, Save, Settings } from "lucide-react";
+import { api } from "@/lib/api";
+
+interface EnvConfigDialogProps {
+  isOpen: boolean;
+  onClose: () => void;
+  isRequired?: boolean;
+}
+
+interface EnvConfig {
+  DASHSCOPE_API_KEY: string;
+  ALIBABA_CLOUD_ACCESS_KEY_ID: string;
+  ALIBABA_CLOUD_ACCESS_KEY_SECRET: string;
+  OSS_BUCKET_NAME: string;
+  OSS_ENDPOINT: string;
+  OSS_BASE_PATH: string;
+}
+
+export default function EnvConfigDialog({ isOpen, onClose, isRequired = false }: EnvConfigDialogProps) {
+  const [config, setConfig] = useState<EnvConfig>({
+    DASHSCOPE_API_KEY: "",
+    ALIBABA_CLOUD_ACCESS_KEY_ID: "",
+    ALIBABA_CLOUD_ACCESS_KEY_SECRET: "",
+    OSS_BUCKET_NAME: "",
+    OSS_ENDPOINT: "",
+    OSS_BASE_PATH: "",
+  });
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      loadConfig();
+    }
+  }, [isOpen]);
+
+  const loadConfig = async () => {
+    setLoading(true);
+    try {
+      const data = await api.getEnvConfig();
+      setConfig(data);
+    } catch (error) {
+      console.error("Failed to load env config:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await api.saveEnvConfig(config);
+      if (!isRequired) {
+        onClose();
+      } else {
+        // Check if all required fields are filled
+        const hasRequired = config.DASHSCOPE_API_KEY && 
+                          config.ALIBABA_CLOUD_ACCESS_KEY_ID && 
+                          config.ALIBABA_CLOUD_ACCESS_KEY_SECRET;
+        if (hasRequired) {
+          onClose();
+        } else {
+          alert("请填写必填项：DashScope API Key 和阿里云 Access Key");
+        }
+      }
+    } catch (error) {
+      console.error("Failed to save env config:", error);
+      alert("保存配置失败，请重试");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleChange = (key: keyof EnvConfig, value: string) => {
+    setConfig((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const canClose = !isRequired || (config.DASHSCOPE_API_KEY && config.ALIBABA_CLOUD_ACCESS_KEY_ID && config.ALIBABA_CLOUD_ACCESS_KEY_SECRET);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div className="bg-gray-900 border border-gray-800 rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between p-6 border-b border-gray-800">
+          <div className="flex items-center gap-3">
+            <Settings className="text-primary" size={24} />
+            <div>
+              <h2 className="text-xl font-bold text-white">环境变量配置</h2>
+              <p className="text-sm text-gray-400">配置阿里云服务的访问凭证</p>
+            </div>
+          </div>
+          {canClose && (
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-white transition-colors"
+            >
+              <X size={20} />
+            </button>
+          )}
+        </div>
+
+        {/* Content */}
+        <div className="p-6 space-y-6">
+          {isRequired && (
+            <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
+              <p className="text-yellow-500 text-sm">
+                ⚠️ 检测到环境变量缺失，请填写以下必填项以继续使用系统。
+              </p>
+            </div>
+          )}
+
+          {loading ? (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+              <p className="text-gray-400 mt-4">加载配置中...</p>
+            </div>
+          ) : (
+            <>
+              {/* DashScope API Key */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  DashScope API Key <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="password"
+                  value={config.DASHSCOPE_API_KEY}
+                  onChange={(e) => handleChange("DASHSCOPE_API_KEY", e.target.value)}
+                  placeholder="用于通义千问等模型"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-primary"
+                />
+              </div>
+
+              {/* Alibaba Cloud Access Key ID */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  阿里云 Access Key ID <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="password"
+                  value={config.ALIBABA_CLOUD_ACCESS_KEY_ID}
+                  onChange={(e) => handleChange("ALIBABA_CLOUD_ACCESS_KEY_ID", e.target.value)}
+                  placeholder="用于 OSS、视频超分等服务"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-primary"
+                />
+              </div>
+
+              {/* Alibaba Cloud Access Key Secret */}
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-2">
+                  阿里云 Access Key Secret <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="password"
+                  value={config.ALIBABA_CLOUD_ACCESS_KEY_SECRET}
+                  onChange={(e) => handleChange("ALIBABA_CLOUD_ACCESS_KEY_SECRET", e.target.value)}
+                  placeholder="阿里云访问密钥"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-primary"
+                />
+              </div>
+
+              {/* OSS Configuration */}
+              <div className="pt-4 border-t border-gray-800">
+                <h3 className="text-lg font-semibold text-white mb-4">OSS 配置（可选）</h3>
+                
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                      OSS Bucket Name
+                    </label>
+                    <input
+                      type="text"
+                      value={config.OSS_BUCKET_NAME}
+                      onChange={(e) => handleChange("OSS_BUCKET_NAME", e.target.value)}
+                      placeholder="your_bucket_name"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-primary"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                      OSS Endpoint
+                    </label>
+                    <input
+                      type="text"
+                      value={config.OSS_ENDPOINT}
+                      onChange={(e) => handleChange("OSS_ENDPOINT", e.target.value)}
+                      placeholder="oss-cn-beijing.aliyuncs.com"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-primary"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                      OSS Base Path
+                    </label>
+                    <input
+                      type="text"
+                      value={config.OSS_BASE_PATH}
+                      onChange={(e) => handleChange("OSS_BASE_PATH", e.target.value)}
+                      placeholder="comic_gen/"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-primary"
+                    />
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-800">
+          {canClose && (
+            <button
+              onClick={onClose}
+              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg transition-colors"
+            >
+              取消
+            </button>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={saving || loading}
+            className="px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg font-medium flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Save size={16} />
+            {saving ? "保存中..." : "保存配置"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
