@@ -124,6 +124,7 @@ if (Test-Path "..\icon.ico") {
 $pyinstallerArgs = @(
     "--clean",
     "--noconfirm",
+    "--onefile",
     "--name", "TronComic",
     "--windowed",
     "--add-data", "static;static",
@@ -172,6 +173,7 @@ if ($iconParam) {
     $pyinstallerArgs = @(
         "--clean",
         "--noconfirm",
+        "--onefile",
         "--name", "TronComic",
         "--windowed",
         $iconParam,

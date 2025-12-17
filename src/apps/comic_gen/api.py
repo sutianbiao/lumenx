@@ -56,7 +56,7 @@ async def upload_file(file: UploadFile = File(...)):
             return {"url": oss_url}
 
         # Fallback to local URL
-        return {"url": f"http://localhost:8000/files/uploads/{filename}"}
+        return {"url": f"http://localhost:17177/files/uploads/{filename}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

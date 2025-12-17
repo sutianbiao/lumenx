@@ -152,7 +152,7 @@ export default function ExportStudio() {
                             <p className="text-gray-400 mb-8">Your video is ready to be shared with the world.</p>
 
                             <a
-                                href={`http://localhost:8000/files/${exportUrl}`}
+                                href={`http://localhost:17177/files/${exportUrl}`}
                                 target="_blank"
                                 className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white px-8 py-4 rounded-xl font-bold text-lg transition-colors shadow-lg shadow-green-600/20"
                             >

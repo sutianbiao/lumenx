@@ -3,7 +3,7 @@ import sys
 import threading
 import time
 import webview
-
+from datetime import datetime
 # 保存原始工作目录
 if getattr(sys, 'frozen', False):
     # 打包后的环境
@@ -105,7 +105,7 @@ def open_webview():
     # 创建 pywebview 窗口
     window = webview.create_window(
         title="云创 AI 漫剧",
-        url="http://127.0.0.1:17177/static/index.html",
+        url=f"http://127.0.0.1:17177/static/index.html?timestamp={datetime.now().timestamp()}",
         width=1280,
         height=800,
         resizable=True,

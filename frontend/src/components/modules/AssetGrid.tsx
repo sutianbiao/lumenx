@@ -31,13 +31,13 @@ export default function AssetGrid({ projectId }: AssetGridProps) {
             ...currentProject.characters.map((c: any) => ({
                 id: c.id,
                 type: "char" as const,
-                url: c.image_url ? `http://localhost:8000/files/${c.image_url}` : "",
+                url: c.image_url ? `http://localhost:17177/files/${c.image_url}` : "",
                 title: c.name
             })),
             ...currentProject.scenes.map((s: any) => ({
                 id: s.id,
                 type: "bg" as const,
-                url: s.image_url ? `http://localhost:8000/files/${s.image_url}` : "",
+                url: s.image_url ? `http://localhost:17177/files/${s.image_url}` : "",
                 title: s.name
             }))
         ];
@@ -50,13 +50,13 @@ export default function AssetGrid({ projectId }: AssetGridProps) {
                 ...currentProject.characters.map((c: any) => ({
                     id: c.id,
                     type: "char" as const,
-                    url: c.image_url ? `http://localhost:8000/files/${c.image_url}` : "",
+                    url: c.image_url ? `http://localhost:17177/files/${c.image_url}` : "",
                     title: c.name
                 })),
                 ...currentProject.scenes.map((s: any) => ({
                     id: s.id,
                     type: "bg" as const,
-                    url: s.image_url ? `http://localhost:8000/files/${s.image_url}` : "",
+                    url: s.image_url ? `http://localhost:17177/files/${s.image_url}` : "",
                     title: s.name
                 }))
             ];
@@ -78,13 +78,13 @@ export default function AssetGrid({ projectId }: AssetGridProps) {
                 ...project.characters.map((c: any) => ({
                     id: c.id,
                     type: "char" as const,
-                    url: c.image_url ? `http://localhost:8000/files/${c.image_url}` : "",
+                    url: c.image_url ? `http://localhost:17177/files/${c.image_url}` : "",
                     title: c.name
                 })),
                 ...project.scenes.map((s: any) => ({
                     id: s.id,
                     type: "bg" as const,
-                    url: s.image_url ? `http://localhost:8000/files/${s.image_url}` : "",
+                    url: s.image_url ? `http://localhost:17177/files/${s.image_url}` : "",
                     title: s.name
                 }))
             ];

@@ -76,7 +76,7 @@ function TaskCard({ task, onRemix }: { task: VideoTask; onRemix: (t: VideoTask) 
     const isCompleted = task.status === "completed";
     const isProcessing = task.status === "processing" || task.status === "pending";
     const isFailed = task.status === "failed";
-    const API_URL = "http://localhost:8000"; // Should import from config/env but hardcoding for quick fix in this component context or better pass as prop
+    const API_URL = "http://localhost:17177"; // Should import from config/env but hardcoding for quick fix in this component context or better pass as prop
 
     const getDisplayUrl = (url: string) => {
         if (!url) return "";
@@ -149,7 +149,7 @@ function TaskCard({ task, onRemix }: { task: VideoTask; onRemix: (t: VideoTask) 
                         <div className="w-1/2 relative bg-black">
                             {task.video_url ? (
                                 <video
-                                    src={`http://localhost:8000/files/${task.video_url}`}
+                                    src={`http://localhost:17177/files/${task.video_url}`}
                                     controls
                                     className="w-full h-full object-cover"
                                 />
