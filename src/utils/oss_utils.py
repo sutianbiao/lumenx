@@ -12,8 +12,8 @@ class OSSImageUploader:
         Initialize OSS Uploader.
         Defaults to environment variables if arguments are not provided.
         """
-        self.access_key_id = access_key_id or os.getenv("OSS_ACCESS_KEY_ID")
-        self.access_key_secret = access_key_secret or os.getenv("OSS_ACCESS_KEY_SECRET")
+        self.access_key_id = access_key_id or os.getenv("ALIBABA_CLOUD_ACCESS_KEY_ID")
+        self.access_key_secret = access_key_secret or os.getenv("ALIBABA_CLOUD_ACCESS_KEY_SECRET")
         self.endpoint = endpoint or os.getenv("OSS_ENDPOINT")
         self.bucket_name = bucket_name or os.getenv("OSS_BUCKET_NAME")
         self.oss_prefix = oss_prefix or os.getenv("OSS_PREFIX", 'comic-gen-assets/')
