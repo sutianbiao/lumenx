@@ -39,7 +39,7 @@ class OSSImageUploader:
                 md5_hash.update(chunk)
         return md5_hash.hexdigest()
 
-    def get_oss_url(self, object_name: str, use_public_url: bool = True) -> str:
+    def get_oss_url(self, object_name: str, use_public_url: bool = False) -> str:
         """
         Get OSS URL.
         

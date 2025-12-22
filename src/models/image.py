@@ -200,7 +200,7 @@ class WanxImageModel(ImageGenModel):
             for path in ref_image_paths[:3]:  # Limit to 3 images
                 if os.path.exists(path):
                     # Upload local file to OSS
-                    image_url = self.oss_uploader.upload_image(path)
+                    image_url = OSSImageUploader().upload_image(path)
                     if image_url:
                         content.append({"image": image_url})
                         logger.info(f"Reference image uploaded: {image_url}")
@@ -335,7 +335,7 @@ class WanxImageModel(ImageGenModel):
                     raise ValueError(f"Reference image not found: {path}")
                 
                 # Upload to OSS
-                url = self.oss_uploader.upload_image(path)
+                url = OSSImageUploader().upload_image(path)
                 if not url:
                     raise RuntimeError(f"Failed to upload reference image to OSS: {path}")
                 ref_image_urls.append(url)
