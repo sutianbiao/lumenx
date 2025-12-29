@@ -149,6 +149,30 @@ export const api = {
         return res.data;
     },
 
+    /**
+     * Generate Motion Reference video for an asset (Full Body or Headshot).
+     * This is part of Asset Activation v2.
+     */
+    generateMotionRef: async (
+        scriptId: string,
+        assetId: string,
+        assetType: 'full_body' | 'head_shot',
+        prompt?: string,
+        audioUrl?: string,
+        duration: number = 5,
+        batchSize: number = 1
+    ) => {
+        const res = await axios.post(`${API_URL}/projects/${scriptId}/assets/generate_motion_ref`, {
+            asset_id: assetId,
+            asset_type: assetType,
+            prompt,
+            audio_url: audioUrl,
+            duration,
+            batch_size: batchSize
+        });
+        return res.data;
+    },
+
     deleteAssetVideo: async (scriptId: string, assetType: string, assetId: string, videoId: string) => {
         const res = await axios.delete(`${API_URL}/projects/${scriptId}/assets/${assetType}/${assetId}/videos/${videoId}`);
         return res.data;

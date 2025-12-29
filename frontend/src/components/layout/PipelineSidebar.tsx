@@ -38,7 +38,7 @@ export default function PipelineSidebar({ activeStep, onStepChange, steps }: Pip
                     {/* Left Column: Large Logo */}
                     <div className="flex-shrink-0">
                         <img
-                            src="LumenX.png"
+                            src="/LumenX.png"
                             alt="LumenX"
                             className="w-16 h-16 object-contain"
                         />

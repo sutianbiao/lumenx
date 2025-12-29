@@ -240,19 +240,6 @@ export default function ConsistencyVault() {
                     </div>
                 ) : (
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
-                        {/* Create New Asset Button */}
-                        <motion.div
-                            layout
-                            initial={{ opacity: 0, scale: 0.9 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            onClick={() => setIsCreateDialogOpen(true)}
-                            className="group relative aspect-[3/4] bg-black/20 rounded-2xl border-2 border-dashed border-white/20 hover:border-primary/50 overflow-hidden transition-all cursor-pointer flex items-center justify-center hover:bg-white/5"
-                        >
-                            <div className="flex flex-col items-center gap-3 text-gray-400 group-hover:text-primary transition-colors">
-                                <Plus size={40} />
-                                <span className="text-sm font-medium">Add {activeTab}</span>
-                            </div>
-                        </motion.div>
                         {assets?.map((asset: any) => (
                             <AssetCard
                                 key={asset.id}
@@ -268,6 +255,19 @@ export default function ConsistencyVault() {
                                 onDelete={() => handleDeleteAsset(asset.id, activeTab)}
                             />
                         ))}
+                        {/* Create New Asset Button */}
+                        <motion.div
+                            layout
+                            initial={{ opacity: 0, scale: 0.9 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            onClick={() => setIsCreateDialogOpen(true)}
+                            className="group relative aspect-[3/4] bg-black/20 rounded-2xl border-2 border-dashed border-white/20 hover:border-primary/50 overflow-hidden transition-all cursor-pointer flex items-center justify-center hover:bg-white/5"
+                        >
+                            <div className="flex flex-col items-center gap-3 text-gray-400 group-hover:text-primary transition-colors">
+                                <Plus size={40} />
+                                <span className="text-sm font-medium">Add {activeTab}</span>
+                            </div>
+                        </motion.div>
                     </div>
                 )}
             </div>

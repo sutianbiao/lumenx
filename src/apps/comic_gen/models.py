@@ -29,6 +29,34 @@ class ImageAsset(BaseModel):
     selected_id: Optional[str] = Field(None, description="ID of the currently selected variant")
     variants: List[ImageVariant] = Field(default_factory=list, description="History of generated variants")
 
+class VideoVariant(BaseModel):
+    """A video variant for Motion Reference"""
+    id: str = Field(..., description="Unique identifier for the video variant")
+    url: str = Field(..., description="URL of the video")
+    created_at: float = Field(default_factory=time.time, description="Timestamp of creation")
+    prompt_used: Optional[str] = Field(None, description="Prompt used for this video generation")
+    audio_url: Optional[str] = Field(None, description="URL of the driving audio (for lip-sync)")
+    source_image_id: Optional[str] = Field(None, description="ID of the static image used as source")
+    is_favorited: bool = Field(False, description="Whether this variant is favorited")
+
+class AssetUnit(BaseModel):
+    """A unified asset container holding both static images and motion references"""
+    # Static Image
+    selected_image_id: Optional[str] = Field(None, description="ID of the currently selected image")
+    image_variants: List[ImageVariant] = Field(default_factory=list, description="Pool of static image variants")
+    
+    # Motion Reference (Video)
+    selected_video_id: Optional[str] = Field(None, description="ID of the currently selected motion ref")
+    video_variants: List[VideoVariant] = Field(default_factory=list, description="Pool of motion reference variants")
+    
+    # Prompts
+    image_prompt: Optional[str] = Field(None, description="Prompt used for image generation")
+    video_prompt: Optional[str] = Field(None, description="Prompt used for motion ref generation")
+    
+    # Timestamps for consistency tracking
+    image_updated_at: float = Field(default_factory=time.time, description="Timestamp of last image update")
+    video_updated_at: float = Field(0.0, description="Timestamp of last motion ref update")
+
 class VideoTask(BaseModel):
     id: str
     project_id: str
@@ -62,35 +90,42 @@ class Character(BaseModel):
     clothing: Optional[str] = Field(None, description="Clothing description")
     visual_weight: int = Field(3, description="Visual importance weight (1-5)")
     
+    # === NEW: Asset Activation v2 - Unified Asset Units ===
+    # Each unit holds both static images and motion references
+    full_body: Optional[AssetUnit] = Field(default_factory=AssetUnit, description="Full Body asset unit (Master)")
+    three_views: Optional[AssetUnit] = Field(default_factory=AssetUnit, description="Three Views asset unit")
+    head_shot: Optional[AssetUnit] = Field(default_factory=AssetUnit, description="Headshot/Avatar asset unit")
+    
+    # === LEGACY: Kept for backwards compatibility ===
     # Level 1: Full Body (Master)
-    full_body_image_url: Optional[str] = Field(None, description="URL of the full body master image (Legacy)")
-    full_body_prompt: Optional[str] = Field(None, description="Prompt used for full body generation")
-    full_body_asset: Optional[ImageAsset] = Field(default_factory=ImageAsset, description="Full body asset container")
+    full_body_image_url: Optional[str] = Field(None, description="[LEGACY] URL of the full body master image")
+    full_body_prompt: Optional[str] = Field(None, description="[LEGACY] Prompt used for full body generation")
+    full_body_asset: Optional[ImageAsset] = Field(default_factory=ImageAsset, description="[LEGACY] Full body asset container")
 
     # Level 2: Three Views (Derived)
-    three_view_image_url: Optional[str] = Field(None, description="URL of the 3-view character sheet (Legacy)")
-    three_view_prompt: Optional[str] = Field(None, description="Prompt used for 3-view generation")
-    three_view_asset: Optional[ImageAsset] = Field(default_factory=ImageAsset, description="Three view asset container")
+    three_view_image_url: Optional[str] = Field(None, description="[LEGACY] URL of the 3-view character sheet")
+    three_view_prompt: Optional[str] = Field(None, description="[LEGACY] Prompt used for 3-view generation")
+    three_view_asset: Optional[ImageAsset] = Field(default_factory=ImageAsset, description="[LEGACY] Three view asset container")
 
     # Level 2: Headshot (Derived)
-    headshot_image_url: Optional[str] = Field(None, description="URL of the headshot/avatar (Legacy)")
-    headshot_prompt: Optional[str] = Field(None, description="Prompt used for headshot generation")
-    headshot_asset: Optional[ImageAsset] = Field(default_factory=ImageAsset, description="Headshot asset container")
+    headshot_image_url: Optional[str] = Field(None, description="[LEGACY] URL of the headshot/avatar")
+    headshot_prompt: Optional[str] = Field(None, description="[LEGACY] Prompt used for headshot generation")
+    headshot_asset: Optional[ImageAsset] = Field(default_factory=ImageAsset, description="[LEGACY] Headshot asset container")
 
-    # Video Assets (New for R2V)
-    video_assets: List[VideoTask] = Field(default_factory=list, description="Generated reference videos for this character")
-    video_prompt: Optional[str] = Field(None, description="Prompt used for video generation")
+    # Video Assets (Legacy R2V - will be migrated to AssetUnit.video_variants)
+    video_assets: List[VideoTask] = Field(default_factory=list, description="[LEGACY] Generated reference videos")
+    video_prompt: Optional[str] = Field(None, description="[LEGACY] Prompt used for video generation")
 
     # Legacy fields (kept for compatibility, mapped to new fields)
-    image_url: Optional[str] = Field(None, description="Legacy: mapped to three_view_image_url")
-    avatar_url: Optional[str] = Field(None, description="Legacy: mapped to headshot_image_url")
+    image_url: Optional[str] = Field(None, description="[LEGACY] mapped to three_view_image_url")
+    avatar_url: Optional[str] = Field(None, description="[LEGACY] mapped to headshot_image_url")
 
     is_consistent: bool = Field(True, description="Whether derived assets match the full body master")
     
-    # Timestamps for consistency tracking
-    full_body_updated_at: float = Field(default_factory=time.time, description="Timestamp of last full body update")
-    three_view_updated_at: float = Field(0.0, description="Timestamp of last three view update")
-    headshot_updated_at: float = Field(0.0, description="Timestamp of last headshot update")
+    # Timestamps for consistency tracking (Legacy - now in AssetUnit)
+    full_body_updated_at: float = Field(default_factory=time.time, description="[LEGACY] Timestamp of last full body update")
+    three_view_updated_at: float = Field(0.0, description="[LEGACY] Timestamp of last three view update")
+    headshot_updated_at: float = Field(0.0, description="[LEGACY] Timestamp of last headshot update")
 
     base_character_id: Optional[str] = Field(None, description="ID of the base character if this is a variant")
     voice_id: Optional[str] = Field(None, description="ID of the voice model to use")

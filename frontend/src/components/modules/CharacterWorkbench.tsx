@@ -8,6 +8,7 @@ import { api, API_URL } from "@/lib/api";
 import { VariantSelector } from "../common/VariantSelector";
 import { VideoVariantSelector } from "../common/VideoVariantSelector";
 import { useProjectStore } from "@/store/projectStore";
+import { Image as PhotoIcon, Video } from "lucide-react";
 
 interface CharacterWorkbenchProps {
     asset: any;
@@ -27,6 +28,18 @@ export default function CharacterWorkbench({ asset, onClose, onUpdateDescription
     const updateProject = useProjectStore(state => state.updateProject);
     const currentProject = useProjectStore(state => state.currentProject);
 
+    // Mode state for Asset Activation v2 (Static/Motion)
+    const [fullBodyMode, setFullBodyMode] = useState<'static' | 'motion'>('static');
+    const [headshotMode, setHeadshotMode] = useState<'static' | 'motion'>('static');
+
+    // Motion Ref prompts
+    const [fullBodyMotionPrompt, setFullBodyMotionPrompt] = useState('');
+    const [headshotMotionPrompt, setHeadshotMotionPrompt] = useState('');
+
+    // Motion Ref generation state
+    const [isGeneratingFullBodyMotion, setIsGeneratingFullBodyMotion] = useState(false);
+    const [isGeneratingHeadshotMotion, setIsGeneratingHeadshotMotion] = useState(false);
+
     // Local state for prompts
     const [fullBodyPrompt, setFullBodyPrompt] = useState(asset.full_body_prompt || "");
     const [threeViewPrompt, setThreeViewPrompt] = useState(asset.three_view_prompt || "");
@@ -39,6 +52,32 @@ export default function CharacterWorkbench({ asset, onClose, onUpdateDescription
     const [negativePrompt, setNegativePrompt] = useState("low quality, bad anatomy, bad hands, text, error, missing fingers, extra digit, fewer digits, cropped, worst quality, jpeg artifacts, signature, watermark, blurry");
     // Art Direction Style expanded state (collapsed by default to save space)
     const [showStyleExpanded, setShowStyleExpanded] = useState(false);
+
+    // Motion Ref generation handler
+    const handleGenerateMotionRef = async (assetType: 'full_body' | 'head_shot', prompt: string, audioUrl?: string) => {
+        if (!currentProject) return;
+
+        const setGenerating = assetType === 'full_body' ? setIsGeneratingFullBodyMotion : setIsGeneratingHeadshotMotion;
+        setGenerating(true);
+
+        try {
+            const updatedProject = await api.generateMotionRef(
+                currentProject.id,
+                asset.id,
+                assetType,
+                prompt,
+                audioUrl,
+                5,  // duration
+                1   // batchSize
+            );
+            updateProject(currentProject.id, updatedProject);
+        } catch (error: any) {
+            console.error('Failed to generate motion ref:', error);
+            alert(`Failed to generate motion reference: ${error.message}`);
+        } finally {
+            setGenerating(false);
+        }
+    };
 
     // Initialize prompts if empty (first time load)
     useEffect(() => {
@@ -174,6 +213,17 @@ export default function CharacterWorkbench({ asset, onClose, onUpdateDescription
                         generatingBatchSize={getGeneratingInfo("full_body").batchSize}
                         description="The primary reference for character consistency."
                         aspectRatio="9:16"
+
+                        // Asset Activation v2 - Motion Ref
+                        supportsMotion={true}
+                        mode={fullBodyMode}
+                        onModeChange={setFullBodyMode}
+                        hasStaticImage={!!asset.full_body_image_url || (asset.full_body_asset?.variants?.length > 0)}
+                        motionRefVideos={asset.full_body?.video_variants || []}
+                        onGenerateMotionRef={(prompt: string, audioUrl?: string) => handleGenerateMotionRef('full_body', prompt, audioUrl)}
+                        isGeneratingMotion={isGeneratingFullBodyMotion}
+                        motionPrompt={fullBodyMotionPrompt}
+                        setMotionPrompt={setFullBodyMotionPrompt}
                     />
 
                     {/* Divider */}
@@ -230,6 +280,17 @@ export default function CharacterWorkbench({ asset, onClose, onUpdateDescription
                         isLocked={!asset.full_body_image_url}
                         description="Close-up facial details and expressions."
                         aspectRatio="1:1"
+
+                        // Asset Activation v2 - Motion Ref
+                        supportsMotion={true}
+                        mode={headshotMode}
+                        onModeChange={setHeadshotMode}
+                        hasStaticImage={!!asset.headshot_image_url || (asset.headshot_asset?.variants?.length > 0)}
+                        motionRefVideos={asset.head_shot?.video_variants || []}
+                        onGenerateMotionRef={(prompt: string, audioUrl?: string) => handleGenerateMotionRef('head_shot', prompt, audioUrl)}
+                        isGeneratingMotion={isGeneratingHeadshotMotion}
+                        motionPrompt={headshotMotionPrompt}
+                        setMotionPrompt={setHeadshotMotionPrompt}
                     />
 
                     {/* Divider */}
@@ -370,7 +431,20 @@ function WorkbenchPanel({
     isVideo = false,
     videos,
     onDeleteVideo,
-    onGenerateVideo
+    onGenerateVideo,
+
+    // Motion Ref Mode (Asset Activation v2)
+    supportsMotion = false,
+    mode = 'static',  // 'static' | 'motion'
+    onModeChange,
+    hasStaticImage = false,
+    motionRefVideos = [],
+    onGenerateMotionRef,
+    isGeneratingMotion = false,
+    motionPrompt = '',
+    setMotionPrompt,
+    motionAudioUrl,
+    setMotionAudioUrl
 }: any) {
     return (
         <div
@@ -379,9 +453,44 @@ function WorkbenchPanel({
         >
             {/* Panel Header */}
             <div className="p-4 border-b border-white/5">
-                <h3 className={`font-bold text-sm uppercase tracking-wider mb-1 ${isActive ? 'text-primary' : 'text-gray-400'}`}>
-                    {title}
-                </h3>
+                <div className="flex items-center justify-between mb-1">
+                    <h3 className={`font-bold text-sm uppercase tracking-wider ${isActive ? 'text-primary' : 'text-gray-400'}`}>
+                        {title}
+                    </h3>
+
+                    {/* Mode Switcher (Asset Activation v2) */}
+                    {supportsMotion && (
+                        <div className="flex items-center gap-1 bg-black/40 p-1 rounded-lg border border-white/10">
+                            <button
+                                onClick={(e) => { e.stopPropagation(); onModeChange?.('static'); }}
+                                className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${mode === 'static'
+                                    ? 'bg-primary/20 text-primary'
+                                    : 'text-gray-400 hover:text-white'
+                                    }`}
+                            >
+                                <PhotoIcon size={12} />
+                                Static
+                            </button>
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (!hasStaticImage) {
+                                        alert('Please generate a static image first.');
+                                        return;
+                                    }
+                                    onModeChange?.('motion');
+                                }}
+                                className={`flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${mode === 'motion'
+                                    ? 'bg-purple-500/20 text-purple-400'
+                                    : 'text-gray-400 hover:text-white'
+                                    }`}
+                            >
+                                <Video size={12} />
+                                Motion
+                            </button>
+                        </div>
+                    )}
+                </div>
                 <p className="text-xs text-gray-500">{description}</p>
             </div>
 
@@ -398,9 +507,65 @@ function WorkbenchPanel({
                     </div>
                 )}
 
-                {/* Variant Selector */}
-                <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-700">
-                    {isVideo ? (
+                {/* Variant Selector / Motion Ref Content */}
+                <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-gray-700">
+                    {mode === 'motion' && supportsMotion ? (
+                        /* Motion Ref Mode Content */
+                        <div className="flex flex-col gap-4 p-2">
+                            {/* Video Player */}
+                            <div className={`relative w-full ${aspectRatio === '9:16' ? 'aspect-[9/16]' : aspectRatio === '1:1' ? 'aspect-square' : 'aspect-video'} bg-gray-900 rounded-lg overflow-hidden border border-gray-700`}>
+                                {motionRefVideos?.length > 0 ? (
+                                    <video
+                                        src={motionRefVideos[motionRefVideos.length - 1]?.url}
+                                        className="w-full h-full object-contain"
+                                        controls
+                                        loop
+                                        autoPlay
+                                        muted
+                                    />
+                                ) : (
+                                    <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 gap-2">
+                                        <Video size={40} className="opacity-50" />
+                                        <span className="text-sm">No motion reference yet</span>
+                                        <span className="text-xs opacity-70">Generate one below</span>
+                                    </div>
+                                )}
+
+                                {isGeneratingMotion && (
+                                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-10 backdrop-blur-sm">
+                                        <div className="flex flex-col items-center gap-3">
+                                            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-purple-400"></div>
+                                            <span className="text-purple-300 font-medium">Generating Motion...</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Motion Prompt */}
+                            <div className="flex flex-col gap-2">
+                                <label className="text-xs font-bold text-gray-400 uppercase">Motion Prompt</label>
+                                <textarea
+                                    value={motionPrompt}
+                                    onChange={(e) => setMotionPrompt?.(e.target.value)}
+                                    className="w-full h-20 bg-black/40 border border-white/10 rounded-lg p-3 text-xs text-gray-300 resize-none focus:outline-none focus:border-purple-500/50 font-mono"
+                                    placeholder="Describe the motion you want..."
+                                />
+                            </div>
+
+                            {/* Generate Button */}
+                            <button
+                                onClick={() => onGenerateMotionRef?.(motionPrompt)}
+                                disabled={isGeneratingMotion}
+                                className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${isGeneratingMotion
+                                        ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
+                                        : 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-lg shadow-purple-500/20'
+                                    }`}
+                            >
+                                <Video size={16} />
+                                Generate Motion Reference
+                            </button>
+                        </div>
+                    ) : isVideo ? (
                         <VideoVariantSelector
                             videos={videos}
                             onDelete={onDeleteVideo}

@@ -517,6 +517,121 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
+    def generate_motion_ref(
+        self,
+        script_id: str,
+        asset_id: str,
+        asset_type: str,  # 'full_body' | 'head_shot'
+        prompt: Optional[str] = None,
+        audio_url: Optional[str] = None,
+        duration: int = 5,
+        batch_size: int = 1
+    ) -> Script:
+        """Generate Motion Reference video for an asset (Full Body or Headshot).
+        
+        Args:
+            script_id: ID of the project/script
+            asset_id: ID of the character
+            asset_type: 'full_body' or 'head_shot'
+            prompt: Custom prompt for motion generation
+            audio_url: URL of driving audio for lip-sync
+            duration: Video duration in seconds (5 or 10)
+            batch_size: Number of videos to generate
+        """
+        from .models import VideoVariant, AssetUnit
+        
+        script = self.scripts.get(script_id)
+        if not script:
+            raise ValueError("Script not found")
+        
+        # Find the character
+        character = next((c for c in script.characters if c.id == asset_id), None)
+        if not character:
+            raise ValueError(f"Character {asset_id} not found")
+        
+        # Get the appropriate AssetUnit
+        if asset_type == "full_body":
+            asset_unit = character.full_body
+            # Get source image from the AssetUnit or legacy field
+            if asset_unit and asset_unit.selected_image_id:
+                source_img = next(
+                    (v for v in asset_unit.image_variants if v.id == asset_unit.selected_image_id),
+                    None
+                )
+                source_image_url = source_img.url if source_img else character.full_body_image_url
+            else:
+                source_image_url = character.full_body_image_url
+            
+            # Default prompt for full body motion
+            if not prompt:
+                prompt = f"Full-body character reference video. {character.description}. Standing pose, shifting weight slightly, natural hand gestures, turning body 30 degrees left and right. Head to toe shot, stable camera, flat lighting."
+        
+        elif asset_type == "head_shot":
+            asset_unit = character.head_shot
+            # Get source image from the AssetUnit or legacy field
+            if asset_unit and asset_unit.selected_image_id:
+                source_img = next(
+                    (v for v in asset_unit.image_variants if v.id == asset_unit.selected_image_id),
+                    None
+                )
+                source_image_url = source_img.url if source_img else character.headshot_image_url
+            else:
+                source_image_url = character.headshot_image_url
+            
+            # Default prompt for headshot motion
+            if not prompt:
+                prompt = f"High-fidelity portrait video reference. {character.description}. Facing camera, speaking naturally matching the audio, subtle head movements, blinking, rich micro-expressions. 4K, studio lighting, stable camera."
+        else:
+            raise ValueError(f"Invalid asset_type: {asset_type}. Must be 'full_body' or 'head_shot'")
+        
+        if not source_image_url:
+            raise ValueError(f"No source image available for {asset_type}. Please generate a static image first.")
+        
+        # Ensure AssetUnit exists
+        if asset_unit is None:
+            asset_unit = AssetUnit()
+            if asset_type == "full_body":
+                character.full_body = asset_unit
+            else:
+                character.head_shot = asset_unit
+        
+        asset_unit.video_prompt = prompt
+        
+        # Generate videos
+        generated_videos = []
+        for i in range(batch_size):
+            try:
+                # Call video generator (I2V)
+                video_result = self.video_generator.generate_i2v(
+                    image_url=source_image_url,
+                    prompt=prompt,
+                    duration=duration,
+                    audio_url=audio_url
+                )
+                
+                if video_result and video_result.get("video_url"):
+                    video_variant = VideoVariant(
+                        id=f"video_{uuid.uuid4().hex[:8]}",
+                        url=video_result["video_url"],
+                        prompt_used=prompt,
+                        audio_url=audio_url,
+                        source_image_id=asset_unit.selected_image_id
+                    )
+                    asset_unit.video_variants.append(video_variant)
+                    
+                    # Auto-select the first generated video
+                    if not asset_unit.selected_video_id:
+                        asset_unit.selected_video_id = video_variant.id
+                    
+                    generated_videos.append(video_variant)
+                    logger.info(f"Generated motion ref video: {video_variant.id}")
+            except Exception as e:
+                logger.error(f"Failed to generate motion ref video: {e}")
+        
+        asset_unit.video_updated_at = time.time()
+        self._save_data()
+        return script
+
     def generate_storyboard_render(self, script_id: str, frame_id: str, composition_data: Optional[Dict[str, Any]], prompt: str, batch_size: int = 1) -> Script:
         """Step 3b: Render a specific frame from composition data."""
         script = self.scripts.get(script_id)

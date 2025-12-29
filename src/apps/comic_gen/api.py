@@ -348,6 +348,36 @@ async def generate_assets(script_id: str, background_tasks: BackgroundTasks):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+class GenerateMotionRefRequest(BaseModel):
+    """Request model for generating Motion Reference videos."""
+    asset_id: str
+    asset_type: str  # 'full_body' | 'head_shot'
+    prompt: Optional[str] = None
+    audio_url: Optional[str] = None  # Driving audio for lip-sync
+    duration: int = 5
+    batch_size: int = 1
+
+
+@app.post("/projects/{script_id}/assets/generate_motion_ref", response_model=Script)
+async def generate_motion_ref(script_id: str, request: GenerateMotionRefRequest):
+    """Generates a Motion Reference video for an asset (Full Body or Headshot)."""
+    try:
+        updated_script = pipeline.generate_motion_ref(
+            script_id=script_id,
+            asset_id=request.asset_id,
+            asset_type=request.asset_type,
+            prompt=request.prompt,
+            audio_url=request.audio_url,
+            duration=request.duration,
+            batch_size=request.batch_size
+        )
+        return updated_script
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/projects/{script_id}/generate_storyboard", response_model=Script)
 async def generate_storyboard(script_id: str):
     """Triggers storyboard generation."""
