@@ -340,6 +340,8 @@ class CreateVideoTaskRequest(BaseModel):
     batch_size: int = 1
     model: str = "wan2.6-i2v"
     shot_type: str = "single"  # 'single' or 'multi' (only for wan2.6-i2v)
+    generation_mode: str = "i2v"  # 'i2v' (image-to-video) or 'r2v' (reference-to-video)
+    reference_video_urls: List[str] = []  # Reference video URLs for R2V (max 3)
 
 
 async def process_video_task(script_id: str, task_id: str):
@@ -369,7 +371,9 @@ async def create_video_task(script_id: str, request: CreateVideoTaskRequest, bac
                 prompt_extend=request.prompt_extend,
                 negative_prompt=request.negative_prompt,
                 model=request.model,
-                shot_type=request.shot_type  # Pass shot_type for wan2.6-i2v
+                shot_type=request.shot_type,
+                generation_mode=request.generation_mode,
+                reference_video_urls=request.reference_video_urls
             )
 
             # Find the created task object

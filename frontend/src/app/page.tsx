@@ -11,7 +11,7 @@ import CreativeCanvas from "@/components/canvas/CreativeCanvas";
 import dynamic from "next/dynamic";
 import { api } from "@/lib/api";
 
-const ProjectClient = dynamic(() => import("@/app/project/[id]/ProjectClient"), { ssr: false });
+const ProjectClient = dynamic(() => import("@/app/project/[id]/page"), { ssr: false });
 
 export default function Home() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);

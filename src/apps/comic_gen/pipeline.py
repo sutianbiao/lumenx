@@ -495,13 +495,17 @@ class ComicGenPipeline:
         self._save_data()
         return script
 
-    def create_video_task(self, script_id: str, image_url: str, prompt: str, duration: int = 5, seed: int = None, resolution: str = "720p", generate_audio: bool = False, audio_url: str = None, prompt_extend: bool = True, negative_prompt: str = None, model: str = "wan2.6-i2v", frame_id: str = None, shot_type: str = "single") -> Tuple[Script, str]:
+    def create_video_task(self, script_id: str, image_url: str, prompt: str, duration: int = 5, seed: int = None, resolution: str = "720p", generate_audio: bool = False, audio_url: str = None, prompt_extend: bool = True, negative_prompt: str = None, model: str = "wan2.6-i2v", frame_id: str = None, shot_type: str = "single", generation_mode: str = "i2v", reference_video_urls: list = None) -> Tuple[Script, str]:
         """Creates a new video generation task."""
         script = self.get_script(script_id)
         if not script:
             raise ValueError("Script not found")
         
         task_id = str(uuid.uuid4())
+        
+        # If R2V mode is selected, use the R2V model
+        if generation_mode == "r2v":
+            model = "wan2.6-r2v"
         
         # Snapshot the input image to ensure consistency
         snapshot_url = image_url
@@ -545,7 +549,9 @@ class ComicGenPipeline:
             prompt_extend=prompt_extend,
             negative_prompt=negative_prompt,
             model=model,
-            shot_type=shot_type,  # Store shot_type for wan2.6-i2v
+            shot_type=shot_type,
+            generation_mode=generation_mode,
+            reference_video_urls=reference_video_urls or [],
             created_at=time.time()
         )
         
@@ -554,7 +560,6 @@ class ComicGenPipeline:
         script.video_tasks.append(task)
         
         self._save_data()
-        return script, task_id
         return script, task_id
 
     def _download_temp_image(self, url: str) -> str:
@@ -851,6 +856,7 @@ class ComicGenPipeline:
                 negative_prompt=task.negative_prompt,
                 model=task.model,
                 shot_type=task.shot_type,  # Pass shot_type for wan2.6-i2v (single/multi)
+                ref_video_urls=task.reference_video_urls if task.generation_mode == "r2v" else None,  # R2V reference videos
                 # Legacy params mapped or ignored
                 camera_motion=None, 
                 subject_motion=None

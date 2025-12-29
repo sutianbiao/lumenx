@@ -30,7 +30,9 @@ export default function VideoGenerator() {
         cameraMovement: "none" as string,
         subjectMotion: "still" as string,
         model: defaultI2vModel,
-        shotType: "single" as string  // 'single' or 'multi' (only for wan2.6-i2v)
+        shotType: "single" as string,  // 'single' or 'multi' (only for wan2.6-i2v)
+        generationMode: "i2v" as string,  // 'i2v' or 'r2v'
+        referenceVideoUrls: [] as string[]  // Reference videos for R2V (max 3)
     });
 
     // Sync model from project settings when project changes

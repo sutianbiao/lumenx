@@ -24,6 +24,8 @@ interface VideoSidebarProps {
         subjectMotion: string;
         model: string;
         shotType: string;  // 'single' or 'multi' (only for wan2.6-i2v)
+        generationMode: string;  // 'i2v' or 'r2v'
+        referenceVideoUrls: string[];  // Reference videos for R2V (max 3)
     };
     setParams: (params: any) => void;
 }
@@ -154,6 +156,40 @@ export default function VideoSidebar({ tasks, onRemix, params, setParams }: Vide
                                             </button>
                                         ))}
                                     </div>
+                                </div>
+
+                                {/* Generation Mode (I2V / R2V) */}
+                                <div>
+                                    <label className="block text-xs text-gray-400 mb-2">
+                                        Generation Mode (生成模式)
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button
+                                            onClick={() => updateParam("generationMode", "i2v")}
+                                            className={`py-2 text-xs rounded-lg border transition-all flex flex-col items-center gap-1 ${params.generationMode === "i2v"
+                                                ? "bg-primary/20 border-primary text-primary"
+                                                : "bg-white/5 border-transparent text-gray-400 hover:bg-white/10"
+                                                }`}
+                                        >
+                                            <span className="font-medium">I2V</span>
+                                            <span className="text-[10px] text-gray-500">图生视频</span>
+                                        </button>
+                                        <button
+                                            onClick={() => updateParam("generationMode", "r2v")}
+                                            className={`py-2 text-xs rounded-lg border transition-all flex flex-col items-center gap-1 ${params.generationMode === "r2v"
+                                                ? "bg-purple-500/20 border-purple-500 text-purple-400"
+                                                : "bg-white/5 border-transparent text-gray-400 hover:bg-white/10"
+                                                }`}
+                                        >
+                                            <span className="font-medium">R2V</span>
+                                            <span className="text-[10px] text-gray-500">参考视频生视频</span>
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-gray-600 mt-1.5">
+                                        {params.generationMode === "r2v"
+                                            ? "R2V模式需要选择角色/场景的参考视频"
+                                            : "I2V模式基于分镜图片生成视频"}
+                                    </p>
                                 </div>
 
                                 {/* Duration */}

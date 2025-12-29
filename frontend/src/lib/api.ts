@@ -42,6 +42,8 @@ export interface VideoTask {
     created_at: number;
     model?: string;
     frame_id?: string;
+    generation_mode?: string;
+    reference_video_urls?: string[];
 }
 
 export const api = {
@@ -91,7 +93,9 @@ export const api = {
         batchSize: number = 1,
         model: string = "wan2.6-i2v",
         frameId?: string,
-        shotType: string = "single"  // 'single' or 'multi' (only for wan2.6-i2v)
+        shotType: string = "single",  // 'single' or 'multi' (only for wan2.6-i2v)
+        generationMode: string = "i2v",  // 'i2v' or 'r2v'
+        referenceVideoUrls: string[] = []  // Reference videos for R2V (max 3)
     ) => {
         const res = await axios.post(`${API_URL}/projects/${id}/video_tasks`, {
             image_url,
@@ -106,7 +110,9 @@ export const api = {
             batch_size: batchSize,
             model,
             frame_id: frameId,
-            shot_type: shotType  // Pass shot_type to backend
+            shot_type: shotType,
+            generation_mode: generationMode,
+            reference_video_urls: referenceVideoUrls
         });
         return res.data;
     },

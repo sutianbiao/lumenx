@@ -5,8 +5,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
     Upload, X, Wand2, Plus, ChevronDown, ChevronUp, Loader2, Layout,
     Video,
-    Eraser
+    Eraser,
+    Check
 } from "lucide-react";
+
+
+
+
 
 import { useProjectStore } from "@/store/projectStore";
 import { api, API_URL, VideoTask } from "@/lib/api";
@@ -30,6 +35,8 @@ interface VideoCreatorProps {
         subjectMotion: string;
         model: string;
         shotType: string;  // 'single' or 'multi' (only for wan2.6-i2v)
+        generationMode: string;  // 'i2v' or 'r2v'
+        referenceVideoUrls: string[];  // Reference videos for R2V
     };
 }
 
@@ -76,6 +83,7 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
     };
 
     const [selectedImages, setSelectedImages] = useState<string[]>([]);
+    const [selectedReferenceVideos, setSelectedReferenceVideos] = useState<string[]>([]); // New state for R2V
     const [uploadingPaths, setUploadingPaths] = useState<Record<string, string>>({}); // Map blobUrl -> serverUrl
     const [activeTab, setActiveTab] = useState<"storyboard" | "upload">("storyboard");
 
@@ -173,8 +181,27 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
         setSelectedImages(prev => prev.filter((_, i) => i !== index));
     };
 
+    // R2V: Handle Reference Video Selection
+    const handleReferenceVideoSelect = (videoUrl: string) => {
+        if (selectedReferenceVideos.includes(videoUrl)) {
+            setSelectedReferenceVideos(prev => prev.filter(v => v !== videoUrl));
+        } else {
+            if (selectedReferenceVideos.length >= 3) {
+                alert("最多选择 3 个参考视频");
+                return;
+            }
+            setSelectedReferenceVideos(prev => [...prev, videoUrl]);
+        }
+    };
+
     const handleSubmit = async () => {
         if (selectedImages.length === 0 || !prompt || !currentProject) return;
+
+        // R2V Validation
+        if (params.generationMode === 'r2v' && selectedReferenceVideos.length === 0) {
+            alert("R2V 模式请至少选择一个参考视频");
+            return;
+        }
 
         setIsSubmitting(true);
         try {
@@ -210,7 +237,9 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
                         prompt_extend: params.promptExtend,
                         negative_prompt: params.negativePrompt,
                         model: params.model,
-                        created_at: Date.now() / 1000
+                        created_at: Date.now() / 1000,
+                        generation_mode: params.generationMode, // Add generation mode
+                        reference_video_urls: params.generationMode === 'r2v' ? selectedReferenceVideos : undefined // Add ref videos
                     });
                 }
             });
@@ -254,7 +283,9 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
                     params.batchSize,
                     params.model,
                     frameId,
-                    params.shotType  // Pass shotType for wan2.6-i2v
+                    params.shotType,
+                    params.generationMode,
+                    params.generationMode === 'r2v' ? selectedReferenceVideos : [] // Pass selected reference videos
                 );
             }
 
@@ -288,7 +319,7 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
         };
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [selectedImages, prompt, currentProject, params]); // Added params dependency
+    }, [selectedImages, prompt, currentProject, params, selectedReferenceVideos]); // Added selectedReferenceVideos dependency
 
     // Available assets for drag/drop or selection
     const availableAssets = currentProject ? [
@@ -301,6 +332,28 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
             title: s.name
         }))
     ].filter(a => a.url) : [];
+
+    // Available Reference Videos (for R2V)
+    const availableReferenceVideos = currentProject ? [
+        ...currentProject.characters.flatMap((c: any) =>
+            (c.video_assets || []).map((v: any) => ({
+                url: v.video_url,
+                thumbnail: v.image_url,
+                title: `${c.name} - Video`,
+                assetName: c.name,
+                type: 'character'
+            }))
+        ),
+        ...currentProject.scenes.flatMap((s: any) =>
+            (s.video_assets || []).map((v: any) => ({
+                url: v.video_url,
+                thumbnail: v.image_url,
+                title: `${s.name} - Video`,
+                assetName: s.name,
+                type: 'scene'
+            }))
+        )
+    ].filter(v => v.url) : [];
 
     return (
         <div className="h-full flex flex-col relative min-h-0">
@@ -476,6 +529,65 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
                             )}
                         </div>
                     </div>
+
+                    {/* R2V: Reference Video Selector */}
+                    {params.generationMode === 'r2v' && (
+                        <div className="space-y-4">
+                            <label className="text-sm font-medium text-gray-300 flex justify-between">
+                                <span>参考视频 (Reference Videos)</span>
+                                <span className="text-xs text-gray-500">{selectedReferenceVideos.length}/3 Selected</span>
+                            </label>
+
+                            {availableReferenceVideos.length > 0 ? (
+                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 max-h-[200px] overflow-y-auto custom-scrollbar pr-2 bg-black/20 border border-white/10 rounded-xl p-4">
+                                    {availableReferenceVideos.map((video, idx) => (
+                                        <div
+                                            key={idx}
+                                            onClick={() => handleReferenceVideoSelect(video.url)}
+                                            className={`group relative aspect-video rounded-lg overflow-hidden border cursor-pointer transition-all ${selectedReferenceVideos.includes(video.url)
+                                                ? "border-purple-500 ring-2 ring-purple-500/50"
+                                                : "border-white/10 hover:border-white/30"
+                                                }`}
+                                        >
+                                            {video.thumbnail ? (
+                                                <img
+                                                    src={getAssetUrl(video.thumbnail)}
+                                                    alt={video.title}
+                                                    className="w-full h-full object-cover"
+                                                />
+                                            ) : (
+                                                <div className="w-full h-full bg-white/5 flex items-center justify-center text-xs text-gray-500">
+                                                    Video
+                                                </div>
+                                            )}
+
+                                            {/* Selection Overlay */}
+                                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                                <span className="text-xs text-white font-bold">Select</span>
+                                            </div>
+
+                                            {/* Type Badge */}
+                                            <div className="absolute top-1 left-1 bg-black/60 px-1.5 rounded text-[10px] text-gray-300 backdrop-blur-sm">
+                                                {video.assetName}
+                                            </div>
+
+                                            {/* Selected Indicator */}
+                                            {selectedReferenceVideos.includes(video.url) && (
+                                                <div className="absolute top-1 right-1 bg-purple-500 w-4 h-4 rounded-full flex items-center justify-center">
+                                                    <Check size={10} className="text-white" />
+                                                </div>
+                                            )}
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="bg-black/20 border border-white/10 rounded-xl p-8 flex flex-col items-center justify-center text-gray-500 gap-2">
+                                    <Video size={32} className="opacity-20" />
+                                    <p className="text-xs">No asset videos found. Generate videos for Characters or Scenes first.</p>
+                                </div>
+                            )}
+                        </div>
+                    )}
 
                     {/* 2. Prompt Input */}
                     <div className="space-y-2">

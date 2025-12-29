@@ -26,6 +26,8 @@ export interface VideoTask {
     duration?: number;
     created_at: number;
     model?: string;
+    generation_mode?: string;  // 'i2v' or 'r2v'
+    reference_video_urls?: string[];  // Reference videos for R2V
 }
 
 export interface Character {
