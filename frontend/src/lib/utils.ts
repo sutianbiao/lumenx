@@ -14,3 +14,12 @@ export function getAssetUrl(path: string | null | undefined): string {
     const cleanPath = path.startsWith("/") ? path.slice(1) : path;
     return `${API_URL}/files/${cleanPath}`;
 }
+
+export function getAssetUrlWithTimestamp(path: string | null | undefined, timestamp?: number): string {
+    const baseUrl = getAssetUrl(path);
+    if (!baseUrl) return "";
+
+    // If URL already has query params, append with & otherwise with ?
+    const separator = baseUrl.includes('?') ? '&' : '?';
+    return baseUrl + separator + `t=${timestamp || 0}`;
+}

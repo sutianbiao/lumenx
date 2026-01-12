@@ -15,7 +15,7 @@ import {
 
 import { useProjectStore } from "@/store/projectStore";
 import { api, API_URL, VideoTask } from "@/lib/api";
-import { getAssetUrl } from "@/lib/utils";
+import { getAssetUrl, getAssetUrlWithTimestamp } from "@/lib/utils";
 import PromptBuilder, { PromptSegment, PromptBuilderRef } from "./PromptBuilder";
 
 interface VideoCreatorProps {
@@ -324,26 +324,57 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
     // Available assets for drag/drop or selection
     const availableAssets = currentProject ? [
         ...currentProject.characters.map((c: any) => ({
-            url: c.image_url ? `${API_URL}/files/${c.image_url}` : "",
+            url: getAssetUrl(c.image_url),
             title: c.name
         })),
         ...currentProject.scenes.map((s: any) => ({
-            url: s.image_url ? `${API_URL}/files/${s.image_url}` : "",
+            url: getAssetUrl(s.image_url),
             title: s.name
         }))
     ].filter(a => a.url) : [];
 
     // Available Reference Videos (for R2V)
     const availableReferenceVideos = currentProject ? [
+        // Character asset video variants (full_body and headshot)
+        ...currentProject.characters.flatMap((c: any) => {
+            const variants = [];
+            // Full body video variants
+            if (c.full_body?.video_variants?.length) {
+                variants.push(...c.full_body.video_variants.map((v: any) => ({
+                    url: v.url,
+                    thumbnail: c.full_body?.selected_image_id
+                        ? (c.full_body.image_variants?.find((img: any) => img.id === c.full_body.selected_image_id)?.url || c.full_body_image_url)
+                        : c.full_body_image_url,
+                    title: `${c.name} - Full Body Motion Reference`,
+                    assetName: c.name,
+                    type: 'character_full_body'
+                })));
+            }
+            // Headshot video variants
+            if (c.head_shot?.video_variants?.length) {
+                variants.push(...c.head_shot.video_variants.map((v: any) => ({
+                    url: v.url,
+                    thumbnail: c.head_shot?.selected_image_id
+                        ? (c.head_shot.image_variants?.find((img: any) => img.id === c.head_shot.selected_image_id)?.url || c.headshot_image_url)
+                        : c.headshot_image_url,
+                    title: `${c.name} - Headshot Motion Reference`,
+                    assetName: c.name,
+                    type: 'character_headshot'
+                })));
+            }
+            return variants;
+        }),
+        // Character legacy video assets
         ...currentProject.characters.flatMap((c: any) =>
             (c.video_assets || []).map((v: any) => ({
                 url: v.video_url,
                 thumbnail: v.image_url,
                 title: `${c.name} - Video`,
                 assetName: c.name,
-                type: 'character'
+                type: 'character_legacy'
             }))
         ),
+        // Scene video assets
         ...currentProject.scenes.flatMap((s: any) =>
             (s.video_assets || []).map((v: any) => ({
                 url: v.video_url,
@@ -352,8 +383,18 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
                 assetName: s.name,
                 type: 'scene'
             }))
+        ),
+        // Prop video assets
+        ...currentProject.props.flatMap((p: any) =>
+            (p.video_assets || []).map((v: any) => ({
+                url: v.video_url,
+                thumbnail: v.image_url,
+                title: `${p.name} - Video`,
+                assetName: p.name,
+                type: 'prop'
+            }))
         )
-    ].filter(v => v.url) : [];
+    ].filter(v => v.url && v.url !== 'null' && v.url !== 'undefined') : [];
 
     return (
         <div className="h-full flex flex-col relative min-h-0">
@@ -410,7 +451,7 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
                                                 >
                                                     {frame.image_url ? (
                                                         <img
-                                                            src={getAssetUrl(frame.image_url) + `?t=${frame.updated_at || 0}`}
+                                                            src={getAssetUrlWithTimestamp(frame.image_url, frame.updated_at)}
                                                             alt={`Frame ${frame.id}`}
                                                             className="w-full h-full object-cover"
                                                         />
@@ -448,7 +489,7 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
                                                     return (
                                                         <div key={idx} className="relative w-24 aspect-video rounded-lg overflow-hidden border border-white/20">
                                                             <img
-                                                                src={getAssetUrl(img) + (timestamp ? `?t=${timestamp}` : "")}
+                                                                src={timestamp ? getAssetUrlWithTimestamp(img, timestamp) : getAssetUrl(img)}
                                                                 alt="Selected"
                                                                 className="w-full h-full object-cover"
                                                             />
@@ -472,7 +513,7 @@ export default function VideoCreator({ onTaskCreated, remixData, onRemixClear, p
                                         {selectedImages.map((img, idx) => (
                                             <div key={idx} className="relative aspect-video bg-black/40 rounded-xl overflow-hidden border border-white/10 group">
                                                 <img
-                                                    src={img.startsWith("blob:") || img.startsWith("http") ? img : `${API_URL}/files/${img}`}
+                                                    src={getAssetUrl(img)}
                                                     alt={`Input ${idx}`}
                                                     className="w-full h-full object-contain"
                                                 />

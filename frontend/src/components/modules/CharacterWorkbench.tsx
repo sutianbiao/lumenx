@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X, RefreshCw, Check, AlertTriangle, Image as ImageIcon, Lock, Unlock, ChevronRight, Maximize2 } from "lucide-react";
+import { X, RefreshCw, Check, AlertTriangle, Image as ImageIcon, Lock, Unlock, ChevronRight, Maximize2, Video } from "lucide-react";
 import { api, API_URL } from "@/lib/api";
 
 import { VariantSelector } from "../common/VariantSelector";
 import { VideoVariantSelector } from "../common/VideoVariantSelector";
 import { useProjectStore } from "@/store/projectStore";
-import { Image as PhotoIcon, Video } from "lucide-react";
+import { Image as PhotoIcon } from "lucide-react";
+import { getAssetUrl } from "@/lib/utils";
+
 
 interface CharacterWorkbenchProps {
     asset: any;
@@ -18,7 +20,7 @@ interface CharacterWorkbenchProps {
     generatingTypes: { type: string; batchSize: number }[];
     stylePrompt?: string;
     styleNegativePrompt?: string;
-    onGenerateVideo?: (prompt: string, duration: number) => void;
+    onGenerateVideo?: (prompt: string, duration: number, subType?: string) => void;
     onDeleteVideo?: (videoId: string) => void;
     isGeneratingVideo?: boolean;
 }
@@ -32,13 +34,18 @@ export default function CharacterWorkbench({ asset, onClose, onUpdateDescription
     const [fullBodyMode, setFullBodyMode] = useState<'static' | 'motion'>('static');
     const [headshotMode, setHeadshotMode] = useState<'static' | 'motion'>('static');
 
-    // Motion Ref prompts
+    // Motion Ref prompts (initialized with PRD templates)
     const [fullBodyMotionPrompt, setFullBodyMotionPrompt] = useState('');
     const [headshotMotionPrompt, setHeadshotMotionPrompt] = useState('');
 
+    // Motion Ref audio URLs
+    const [fullBodyAudioUrl, setFullBodyAudioUrl] = useState('');
+    const [headshotAudioUrl, setHeadshotAudioUrl] = useState('');
+    const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+
     // Motion Ref generation state
-    const [isGeneratingFullBodyMotion, setIsGeneratingFullBodyMotion] = useState(false);
-    const [isGeneratingHeadshotMotion, setIsGeneratingHeadshotMotion] = useState(false);
+    const [isVideoLoading, setIsVideoLoading] = useState(false);
+
 
     // Local state for prompts
     const [fullBodyPrompt, setFullBodyPrompt] = useState(asset.full_body_prompt || "");
@@ -53,29 +60,84 @@ export default function CharacterWorkbench({ asset, onClose, onUpdateDescription
     // Art Direction Style expanded state (collapsed by default to save space)
     const [showStyleExpanded, setShowStyleExpanded] = useState(false);
 
-    // Motion Ref generation handler
+    // Motion Ref generation handler with validation
     const handleGenerateMotionRef = async (assetType: 'full_body' | 'head_shot', prompt: string, audioUrl?: string) => {
-        if (!currentProject) return;
+        if (!onGenerateVideo) return;
 
-        const setGenerating = assetType === 'full_body' ? setIsGeneratingFullBodyMotion : setIsGeneratingHeadshotMotion;
-        setGenerating(true);
+        // Check if source image exists
+        const hasSourceImage = assetType === 'full_body'
+            ? (asset.full_body_image_url || asset.full_body_asset?.variants?.length > 0)
+            : (asset.headshot_image_url || asset.headshot_asset?.variants?.length > 0);
+
+        if (!hasSourceImage) {
+            alert(`请先生成一张${assetType === 'full_body' ? '全身图' : '头像'}作为参考图，然后再生成动态参考视频。`);
+            return;
+        }
+
+        setIsVideoLoading(true); // Start loading state (will be reset by onCanPlay or if no video)
+        onGenerateVideo(prompt, 5, assetType);
+    };
+
+
+    // Audio upload handler for Motion Ref
+    const handleAudioUpload = async (file: File, assetType: 'full_body' | 'head_shot') => {
+        if (!file) return;
+
+        // Validate file type
+        if (!file.type.startsWith('audio/')) {
+            alert('请上传有效的音频文件（MP3, WAV, etc.）');
+            return;
+        }
+
+        // Validate file size (max 10MB)
+        if (file.size > 10 * 1024 * 1024) {
+            alert('音频文件不能超过 10MB');
+            return;
+        }
+
+        setIsUploadingAudio(true);
 
         try {
-            const updatedProject = await api.generateMotionRef(
-                currentProject.id,
-                asset.id,
-                assetType,
-                prompt,
-                audioUrl,
-                5,  // duration
-                1   // batchSize
-            );
-            updateProject(currentProject.id, updatedProject);
+            const result = await api.uploadFile(file);
+            const url = result.url;
+
+            if (assetType === 'full_body') {
+                setFullBodyAudioUrl(url);
+                // Automatically update prompt if it's the default "counting" one
+                const currentDefault = `Full-body character reference video.\n${asset.description}.\nStanding pose, shifting weight slightly, natural hand gestures while talking, turning body 30 degrees left and right. The character is speaking naturally, counting numbers from one to five in English.\nHead to toe shot, stable camera, flat lighting.`;
+                const oldDefault = `Full-body character reference video.\n${asset.description}.\nStanding pose, shifting weight slightly, natural hand gestures while talking, turning body 30 degrees left and right to show costume details. No walking away.\nHead to toe shot, stable camera, flat lighting.`;
+
+                if (fullBodyMotionPrompt === currentDefault || fullBodyMotionPrompt === oldDefault || !fullBodyMotionPrompt) {
+                    setFullBodyMotionPrompt(`Full-body character reference video.\n${asset.description}.\nStanding pose, shifting weight slightly, natural hand gestures, turning body 30 degrees left and right. The character is speaking naturally matching the audio, with accurate lip-sync and facial expressions.\nHead to toe shot, stable camera, flat lighting.`);
+                }
+            } else {
+                setHeadshotAudioUrl(url);
+                // Automatically update prompt if it's the default "counting" one
+                const currentDefault = `High-fidelity portrait video reference.\n${asset.description}.\nFacing camera, speaking naturally, counting numbers from one to five in English, subtle head movements, blinking, rich micro-expressions.\n4k, studio lighting, stable camera.`;
+                const oldDefault = `High-fidelity portrait video reference.\n${asset.description}.\nFacing camera, speaking naturally matching the audio, subtle head movements, blinking, rich micro-expressions.\n4k, studio lighting, stable camera.`;
+
+                if (headshotMotionPrompt === currentDefault || headshotMotionPrompt === oldDefault || !headshotMotionPrompt) {
+                    setHeadshotMotionPrompt(`High-fidelity portrait video reference.\n${asset.description}.\nFacing camera, speaking naturally matching the audio, with accurate lip-sync and facial expressions, subtle head movements, blinking, rich micro-expressions.\n4k, studio lighting, stable camera.`);
+                }
+            }
         } catch (error: any) {
-            console.error('Failed to generate motion ref:', error);
-            alert(`Failed to generate motion reference: ${error.message}`);
+            console.error('Failed to upload audio:', error);
+            alert(`音频上传失败：${error.message}`);
         } finally {
-            setGenerating(false);
+            setIsUploadingAudio(false);
+        }
+    };
+
+    // PRD Motion Prompt Templates
+    const getMotionDefault = (type: 'full_body' | 'headshot', hasAudio: boolean) => {
+        if (type === 'full_body') {
+            return hasAudio
+                ? `Full-body character reference video.\n${asset.description}.\nStanding pose, shifting weight slightly, natural hand gestures, turning body 30 degrees left and right. The character is speaking naturally matching the audio, with accurate lip-sync and facial expressions.\nHead to toe shot, stable camera, flat lighting.`
+                : `Full-body character reference video.\n${asset.description}.\nStanding pose, shifting weight slightly, natural hand gestures while talking, turning body 30 degrees left and right. The character is speaking naturally, counting numbers from one to five in English.\nHead to toe shot, stable camera, flat lighting.`;
+        } else {
+            return hasAudio
+                ? `High-fidelity portrait video reference.\n${asset.description}.\nFacing camera, speaking naturally matching the audio, with accurate lip-sync and facial expressions, subtle head movements, blinking, rich micro-expressions.\n4k, studio lighting, stable camera.`
+                : `High-fidelity portrait video reference.\n${asset.description}.\nFacing camera, speaking naturally, counting numbers from one to five in English, subtle head movements, blinking, rich micro-expressions.\n4k, studio lighting, stable camera.`;
         }
     };
 
@@ -93,7 +155,25 @@ export default function CharacterWorkbench({ asset, onClose, onUpdateDescription
         if (!videoPrompt) {
             setVideoPrompt(`Cinematic shot of ${asset.name}, ${asset.description}, looking around, breathing, slight movement, high quality, 4k`);
         }
+
+        if (!fullBodyMotionPrompt) {
+            setFullBodyMotionPrompt(getMotionDefault('full_body', !!fullBodyAudioUrl));
+        }
+        if (!headshotMotionPrompt) {
+            setHeadshotMotionPrompt(getMotionDefault('headshot', !!headshotAudioUrl));
+        }
     }, [asset.name, asset.description]);
+
+    const handleResetMotionPrompt = (type: 'full_body' | 'headshot') => {
+        const hasAudio = type === 'full_body' ? !!fullBodyAudioUrl : !!headshotAudioUrl;
+        const defaultPrompt = getMotionDefault(type, hasAudio);
+        if (type === 'full_body') {
+            setFullBodyMotionPrompt(defaultPrompt);
+        } else {
+            setHeadshotMotionPrompt(defaultPrompt);
+        }
+    };
+
 
     // Update local state when asset updates (e.g. after generation)
     useEffect(() => {
@@ -112,30 +192,14 @@ export default function CharacterWorkbench({ asset, onClose, onUpdateDescription
         onGenerate(type, prompt, applyStyle, negativePrompt, batchSize);
     };
 
-    // Helper to get image URL
-    const getImageUrl = (url: string) => {
-        if (!url) return null;
-        return url.startsWith("http") ? url : `${API_URL}/files/${url}`;
-    };
-
     // Helper to check if a specific type is generating
     const getGeneratingInfo = (type: string) => {
-        console.log("[DEBUG] generatingTypes:", generatingTypes);
-        // Safety check: ensure generatingTypes is an array
         if (!Array.isArray(generatingTypes) || generatingTypes.length === 0) {
             return { isGenerating: false, batchSize: 1 };
         }
         const task = generatingTypes.find(t => t?.type === type || t?.type === "all");
-        console.log("[DEBUG] found task for type", type, ":", task);
         return task ? { isGenerating: true, batchSize: task.batchSize || 1 } : { isGenerating: false, batchSize: 1 };
     };
-
-    // Handlers for Variant Selection/Deletion
-    // Note: In a real app, these would call API endpoints. 
-    // For this prototype, we'll update the local store state directly if possible, or just mock it.
-    // Since we don't have API endpoints for select/delete yet, we'll assume the parent component or store handles it,
-    // OR we implement local state manipulation here.
-    // Ideally, we should add select/delete actions to the store.
 
     const handleSelectVariant = async (type: "full_body" | "three_view" | "headshot", variantId: string) => {
         if (!currentProject) return;
@@ -199,7 +263,6 @@ export default function CharacterWorkbench({ asset, onClose, onUpdateDescription
                         isActive={activePanel === "full_body"}
                         onClick={() => setActivePanel("full_body")}
 
-                        // Variant Props - use backend field names
                         asset={asset.full_body_asset}
                         currentImageUrl={asset.full_body_image_url}
                         onSelect={(id: string) => handleSelectVariant("full_body", id)}
@@ -214,17 +277,23 @@ export default function CharacterWorkbench({ asset, onClose, onUpdateDescription
                         description="The primary reference for character consistency."
                         aspectRatio="9:16"
 
-                        // Asset Activation v2 - Motion Ref
                         supportsMotion={true}
                         mode={fullBodyMode}
                         onModeChange={setFullBodyMode}
                         hasStaticImage={!!asset.full_body_image_url || (asset.full_body_asset?.variants?.length > 0)}
                         motionRefVideos={asset.full_body?.video_variants || []}
                         onGenerateMotionRef={(prompt: string, audioUrl?: string) => handleGenerateMotionRef('full_body', prompt, audioUrl)}
-                        isGeneratingMotion={isGeneratingFullBodyMotion}
+                        isGeneratingMotion={generatingTypes.some(t => t.type === "video_full_body")}
                         motionPrompt={fullBodyMotionPrompt}
                         setMotionPrompt={setFullBodyMotionPrompt}
+                        audioUrl={fullBodyAudioUrl}
+                        onAudioUpload={(file: File) => handleAudioUpload(file, 'full_body')}
+                        isUploadingAudio={isUploadingAudio}
+                        isVideoLoading={isVideoLoading}
+                        setIsVideoLoading={setIsVideoLoading}
+                        onResetPrompt={() => handleResetMotionPrompt('full_body')}
                     />
+
 
                     {/* Divider */}
                     <div className="w-px bg-white/10 flex items-center justify-center">
@@ -237,7 +306,6 @@ export default function CharacterWorkbench({ asset, onClose, onUpdateDescription
                         isActive={activePanel === "three_view"}
                         onClick={() => setActivePanel("three_view")}
 
-                        // Variant Props - use backend field names
                         asset={asset.three_view_asset}
                         currentImageUrl={asset.three_view_image_url}
                         onSelect={(id: string) => handleSelectVariant("three_view", id)}
@@ -265,7 +333,6 @@ export default function CharacterWorkbench({ asset, onClose, onUpdateDescription
                         isActive={activePanel === "headshot"}
                         onClick={() => setActivePanel("headshot")}
 
-                        // Variant Props - use backend field names
                         asset={asset.headshot_asset}
                         currentImageUrl={asset.headshot_image_url || asset.avatar_url}
                         onSelect={(id: string) => handleSelectVariant("headshot", id)}
@@ -281,42 +348,23 @@ export default function CharacterWorkbench({ asset, onClose, onUpdateDescription
                         description="Close-up facial details and expressions."
                         aspectRatio="1:1"
 
-                        // Asset Activation v2 - Motion Ref
                         supportsMotion={true}
                         mode={headshotMode}
                         onModeChange={setHeadshotMode}
                         hasStaticImage={!!asset.headshot_image_url || (asset.headshot_asset?.variants?.length > 0)}
                         motionRefVideos={asset.head_shot?.video_variants || []}
                         onGenerateMotionRef={(prompt: string, audioUrl?: string) => handleGenerateMotionRef('head_shot', prompt, audioUrl)}
-                        isGeneratingMotion={isGeneratingHeadshotMotion}
+                        isGeneratingMotion={generatingTypes.some(t => t.type === "video_head_shot")}
                         motionPrompt={headshotMotionPrompt}
                         setMotionPrompt={setHeadshotMotionPrompt}
+                        audioUrl={headshotAudioUrl}
+                        onAudioUpload={(file: File) => handleAudioUpload(file, 'head_shot')}
+                        isUploadingAudio={isUploadingAudio}
+                        isVideoLoading={isVideoLoading}
+                        setIsVideoLoading={setIsVideoLoading}
+                        onResetPrompt={() => handleResetMotionPrompt('headshot')}
                     />
 
-                    {/* Divider */}
-                    <div className="w-px bg-white/10 flex items-center justify-center">
-                        <ChevronRight size={16} className="text-gray-600" />
-                    </div>
-
-                    {/* Panel 4: Reference Video */}
-                    <WorkbenchPanel
-                        title="4. Reference Video"
-                        isActive={activePanel === "video"}
-                        onClick={() => setActivePanel("video")}
-
-                        // Video specific props
-                        isVideo={true}
-                        videos={asset.video_assets || []}
-                        onDeleteVideo={onDeleteVideo}
-                        onGenerateVideo={(duration: number) => onGenerateVideo?.(videoPrompt, duration)}
-
-                        prompt={videoPrompt}
-                        setPrompt={setVideoPrompt}
-                        isGenerating={isGeneratingVideo}
-                        isLocked={!asset.full_body_image_url}
-                        description="Motion reference for video generation."
-                        aspectRatio="16:9"
-                    />
 
                 </div>
 
@@ -443,9 +491,14 @@ function WorkbenchPanel({
     isGeneratingMotion = false,
     motionPrompt = '',
     setMotionPrompt,
-    motionAudioUrl,
-    setMotionAudioUrl
+    audioUrl = '',
+    onAudioUpload,
+    isUploadingAudio = false,
+    isVideoLoading = false,
+    setIsVideoLoading,
+    onResetPrompt
 }: any) {
+
     return (
         <div
             className={`flex-1 flex flex-col min-w-[300px] transition-colors ${isActive ? 'bg-white/5' : 'bg-transparent hover:bg-white/[0.02]'}`}
@@ -510,55 +563,123 @@ function WorkbenchPanel({
                 {/* Variant Selector / Motion Ref Content */}
                 <div className="flex-1 overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-gray-700">
                     {mode === 'motion' && supportsMotion ? (
-                        /* Motion Ref Mode Content */
-                        <div className="flex flex-col gap-4 p-2">
-                            {/* Video Player */}
-                            <div className={`relative w-full ${aspectRatio === '9:16' ? 'aspect-[9/16]' : aspectRatio === '1:1' ? 'aspect-square' : 'aspect-video'} bg-gray-900 rounded-lg overflow-hidden border border-gray-700`}>
+                        /* Motion Ref Mode Content - Matching Static Style */
+                        <div className="flex flex-col gap-4 p-4">
+                            {/* Header with gradient accent */}
+                            <div className="flex items-center gap-2 pb-2 border-b border-purple-500/20">
+                                <div className="w-1 h-4 bg-gradient-to-b from-purple-400 to-pink-500 rounded-full"></div>
+                                <span className="text-xs font-bold text-purple-300 uppercase tracking-wider">Motion Reference</span>
+                            </div>
+
+                            {/* Video Player with glassmorphism */}
+                            <div className={`relative w-full ${aspectRatio === '9:16' ? 'aspect-[9/16] max-h-[40vh]' : aspectRatio === '1:1' ? 'aspect-square max-h-[35vh]' : 'aspect-video'} bg-gradient-to-br from-gray-900/80 to-black rounded-xl overflow-hidden border border-white/5 shadow-xl backdrop-blur-sm`}>
+                                {isGeneratingMotion ? (
+                                    <div className="absolute inset-0 z-10 bg-black/60 backdrop-blur-md flex flex-col items-center justify-center gap-4">
+                                        <div className="relative">
+                                            <RefreshCw size={48} className="text-purple-400 animate-spin" />
+                                            <div className="absolute inset-0 blur-xl bg-purple-500/30 animate-pulse"></div>
+                                        </div>
+                                        <div className="flex flex-col items-center">
+                                            <span className="text-sm font-bold text-white uppercase tracking-widest animate-pulse">Generating Video</span>
+                                            <span className="text-[10px] text-purple-300/60 mt-1">AI is processing motion...</span>
+                                        </div>
+                                    </div>
+                                ) : isVideoLoading && motionRefVideos?.length > 0 ? (
+                                    <div className="absolute inset-0 z-10 bg-black/40 backdrop-blur-sm flex flex-col items-center justify-center gap-3">
+                                        <RefreshCw size={32} className="text-gray-400 animate-spin" />
+                                        <span className="text-xs text-gray-400 font-medium">Loading Video File...</span>
+                                    </div>
+                                ) : null}
+
                                 {motionRefVideos?.length > 0 ? (
                                     <video
-                                        src={motionRefVideos[motionRefVideos.length - 1]?.url}
+                                        key={motionRefVideos[motionRefVideos.length - 1]?.url}
+                                        src={getAssetUrl(motionRefVideos[motionRefVideos.length - 1]?.url)}
+                                        onCanPlay={() => setIsVideoLoading(false)}
+                                        onLoadStart={() => setIsVideoLoading(true)}
                                         className="w-full h-full object-contain"
                                         controls
                                         loop
                                         autoPlay
                                         muted
                                     />
-                                ) : (
+                                ) : !isGeneratingMotion && (
                                     <div className="w-full h-full flex flex-col items-center justify-center text-gray-500 gap-2">
                                         <Video size={40} className="opacity-50" />
                                         <span className="text-sm">No motion reference yet</span>
                                         <span className="text-xs opacity-70">Generate one below</span>
                                     </div>
                                 )}
+                            </div>
 
-                                {isGeneratingMotion && (
-                                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-10 backdrop-blur-sm">
-                                        <div className="flex flex-col items-center gap-3">
-                                            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-purple-400"></div>
-                                            <span className="text-purple-300 font-medium">Generating Motion...</span>
-                                        </div>
-                                    </div>
-                                )}
+                            <div className="bg-black/20 rounded-lg border border-white/10 p-3">
+                                <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Audio Input (Optional)</label>
+                                <p className="text-xs text-gray-600 mb-3">Upload audio to drive lip-sync or body rhythm</p>
+
+                                <label className={`flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-dashed cursor-pointer transition-all ${audioUrl
+                                    ? 'border-green-500/50 bg-green-500/10 text-green-400'
+                                    : 'border-indigo-500/30 hover:border-indigo-400/50 hover:bg-indigo-500/5 text-gray-400'
+                                    }`}>
+                                    <input
+                                        type="file"
+                                        accept="audio/*"
+                                        className="hidden"
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file) onAudioUpload?.(file);
+                                        }}
+                                        disabled={isUploadingAudio}
+                                    />
+                                    {isUploadingAudio ? (
+                                        <>
+                                            <div className="animate-spin rounded-full h-4 w-4 border-2 border-primary/30 border-t-primary"></div>
+                                            <span className="text-xs">Uploading...</span>
+                                        </>
+                                    ) : audioUrl ? (
+                                        <>
+                                            <Check size={14} />
+                                            <span className="text-xs font-medium">Audio Uploaded</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <ImageIcon size={14} />
+                                            <span className="text-xs">Upload Audio File</span>
+                                        </>
+                                    )}
+                                </label>
                             </div>
 
                             {/* Motion Prompt */}
                             <div className="flex flex-col gap-2">
-                                <label className="text-xs font-bold text-gray-400 uppercase">Motion Prompt</label>
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-gray-500 uppercase">Motion Prompt</label>
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onResetPrompt?.();
+                                        }}
+                                        className="text-[10px] text-primary hover:text-primary/80 transition-colors flex items-center gap-1"
+                                        title="Reset to recommended prompt"
+                                    >
+                                        <RefreshCw size={10} />
+                                        Reset
+                                    </button>
+                                </div>
                                 <textarea
                                     value={motionPrompt}
                                     onChange={(e) => setMotionPrompt?.(e.target.value)}
-                                    className="w-full h-20 bg-black/40 border border-white/10 rounded-lg p-3 text-xs text-gray-300 resize-none focus:outline-none focus:border-purple-500/50 font-mono"
+                                    className="w-full h-24 bg-black/40 border border-white/10 rounded-lg p-3 text-xs text-gray-300 resize-none focus:outline-none focus:border-primary/50 font-mono leading-relaxed"
                                     placeholder="Describe the motion you want..."
                                 />
                             </div>
 
                             {/* Generate Button */}
                             <button
-                                onClick={() => onGenerateMotionRef?.(motionPrompt)}
+                                onClick={() => onGenerateMotionRef?.(motionPrompt, audioUrl)}
                                 disabled={isGeneratingMotion}
-                                className={`flex items-center justify-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${isGeneratingMotion
-                                        ? 'bg-gray-700 text-gray-400 cursor-not-allowed'
-                                        : 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 text-white shadow-lg shadow-purple-500/20'
+                                className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${isGeneratingMotion
+                                    ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                    : 'bg-primary hover:bg-primary/90 text-white shadow-lg'
                                     }`}
                             >
                                 <Video size={16} />

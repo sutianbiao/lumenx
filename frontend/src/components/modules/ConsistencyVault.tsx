@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Paintbrush, User, MapPin, Box, Lock, Unlock, RefreshCw, Upload, Image as ImageIcon, X, Check, Settings, ChevronRight, Trash2, Plus } from "lucide-react";
 import { useProjectStore } from "@/store/projectStore";
 import { api, API_URL, crudApi } from "@/lib/api";
+import { getAssetUrl } from "@/lib/utils";
 import CharacterWorkbench from "./CharacterWorkbench";
 import { VariantSelector } from "../common/VariantSelector";
 import { VideoVariantSelector } from "../common/VideoVariantSelector";
@@ -78,8 +79,10 @@ export default function ConsistencyVault() {
             const currentStyle = styles.find(s => s.id === selectedStyleId);
             const stylePrompt = currentStyle?.prompt;
 
-            // Call API with new parameters
-            const updatedProject = await api.generateAsset(
+            console.log("[handleGenerate] Starting asset generation...");
+
+            // Call API - now returns immediately with task_id
+            const response = await api.generateAsset(
                 currentProject.id,
                 assetId,
                 type,
@@ -89,15 +92,69 @@ export default function ConsistencyVault() {
                 prompt,
                 applyStyle,
                 negativePrompt,
-                batchSize
+                batchSize,
+                currentProject.model_settings?.t2i_model
             );
 
-            updateProject(currentProject.id, updatedProject);
-            console.log("Asset generated successfully");
+            const taskId = response._task_id;
+            console.log("[handleGenerate] Got task_id:", taskId);
+
+            // Start polling if we got a task_id
+            if (taskId) {
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const status = await api.getTaskStatus(taskId);
+                        console.log("[Polling] Task status:", status.status);
+
+                        if (status.status === "completed") {
+                            clearInterval(pollInterval);
+                            // Refresh project data
+                            const updatedProject = await api.getProject(currentProject.id);
+                            updateProject(currentProject.id, updatedProject);
+                            console.log("Asset generated successfully (async)");
+
+                            if (removeGeneratingTask) {
+                                removeGeneratingTask(assetId, generationType);
+                            }
+                        } else if (status.status === "failed") {
+                            clearInterval(pollInterval);
+                            console.error("Asset generation failed:", status.error);
+                            alert(status.error || '生成失败，请稍后重试');
+
+                            // Also refresh project to show updated status
+                            try {
+                                const updatedProject = await api.getProject(currentProject.id);
+                                updateProject(currentProject.id, updatedProject);
+                            } catch (refreshError) {
+                                console.error("Failed to refresh project:", refreshError);
+                            }
+
+                            if (removeGeneratingTask) {
+                                removeGeneratingTask(assetId, generationType);
+                            }
+                        }
+                        // If status is "pending" or "processing", continue polling
+                    } catch (pollError: any) {
+                        console.error("Polling error:", pollError);
+                        clearInterval(pollInterval);
+                        alert(`轮询任务状态失败: ${pollError.message || '网络错误'}`);
+                        if (removeGeneratingTask) {
+                            removeGeneratingTask(assetId, generationType);
+                        }
+                    }
+                }, 2000); // Poll every 2 seconds
+            } else {
+                // Fallback: no task_id means sync response (shouldn't happen, but just in case)
+                console.warn("[handleGenerate] No task_id in response, falling back to sync mode");
+                updateProject(currentProject.id, response);
+                console.log("Asset generated successfully");
+                if (removeGeneratingTask) {
+                    removeGeneratingTask(assetId, generationType);
+                }
+            }
         } catch (error: any) {
             console.error("Failed to generate asset:", error);
-            alert(`Failed to generate asset: ${error.message}`);
-        } finally {
+            alert(`启动生成任务失败: ${error.response?.data?.detail || error.message}`);
             if (removeGeneratingTask) {
                 removeGeneratingTask(assetId, generationType);
             }
@@ -149,23 +206,94 @@ export default function ConsistencyVault() {
     };
 
     // Video Handlers
-    const handleGenerateVideo = async (assetId: string, type: string, prompt: string, duration: number) => {
+    const handleGenerateVideo = async (assetId: string, type: string, prompt: string, duration: number, assetSubType: string = "full_body") => {
         if (!currentProject) return;
 
+        // Validate and map the assetSubType to ensure correct values are passed
+        let finalAssetType: 'full_body' | 'head_shot' | 'scene' | 'prop' = 'full_body';
+
+        // Different mappings based on the type of asset
+        if (type === "scene") {
+            finalAssetType = "scene";
+        } else if (type === "prop") {
+            finalAssetType = "prop";
+        } else {
+            // For character types, ensure assetSubType is valid
+            if (assetSubType === "head_shot") {
+                finalAssetType = "head_shot";
+            } else {
+                finalAssetType = "full_body";  // default to full_body
+            }
+        }
+
+        // Use a more specific generation type to avoid state pollution
+        const generationType = assetSubType === "head_shot" ? "video_head_shot" : "video_full_body";
+
         if (addGeneratingTask) {
-            addGeneratingTask(assetId, "video", 1);
+            addGeneratingTask(assetId, generationType, 1);
         }
 
         try {
-            await api.generateAssetVideo(currentProject.id, type, assetId, { prompt, duration });
-            const updatedProject = await api.getProject(currentProject.id);
-            updateProject(currentProject.id, updatedProject);
+            console.log(`[handleGenerateVideo] Starting ${generationType} generation for asset ${type}, type: ${finalAssetType}...`);
+            const response = await api.generateMotionRef(
+                currentProject.id,
+                assetId,
+                finalAssetType,
+                prompt,
+                undefined, // audioUrl
+                duration
+            );
+
+            const taskId = response._task_id;
+            console.log("[handleGenerateVideo] Got task_id:", taskId);
+
+            if (taskId) {
+                // Polling mechanism for video task
+                const pollInterval = setInterval(async () => {
+                    try {
+                        const status = await api.getTaskStatus(taskId);
+                        console.log(`[Video Polling] Task ${taskId} status:`, status.status);
+
+                        if (status.status === "completed") {
+                            clearInterval(pollInterval);
+                            // Refresh project data
+                            const updatedProject = await api.getProject(currentProject.id);
+                            updateProject(currentProject.id, updatedProject);
+                            if (removeGeneratingTask) {
+                                removeGeneratingTask(assetId, generationType);
+                            }
+                            console.log(`[Video Polling] ${generationType} generated successfully`);
+                        } else if (status.status === "failed") {
+                            clearInterval(pollInterval);
+                            alert(`视频生成失败: ${status.error || '生成失败，请稍后重试'}`);
+                            if (removeGeneratingTask) {
+                                removeGeneratingTask(assetId, generationType);
+                            }
+                            // Still refresh to show failed status if any
+                            const updatedProject = await api.getProject(currentProject.id);
+                            updateProject(currentProject.id, updatedProject);
+                        }
+                    } catch (pollError: any) {
+                        console.error("Video polling error:", pollError);
+                        clearInterval(pollInterval);
+                        alert(`视频轮询失败: ${pollError.message || '网络错误'}`);
+                        if (removeGeneratingTask) {
+                            removeGeneratingTask(assetId, generationType);
+                        }
+                    }
+                }, 3000); // Poll every 3 seconds for video
+            } else {
+                // Fallback for sync response
+                updateProject(currentProject.id, response);
+                if (removeGeneratingTask) {
+                    removeGeneratingTask(assetId, generationType);
+                }
+            }
         } catch (error: any) {
             console.error("Failed to generate video:", error);
-            alert(`Failed to generate video: ${error.message}`);
-        } finally {
+            alert(`启动视频生成失败: ${error.response?.data?.detail || error.message}`);
             if (removeGeneratingTask) {
-                removeGeneratingTask(assetId, "video");
+                removeGeneratingTask(assetId, generationType);
             }
         }
     };
@@ -181,6 +309,29 @@ export default function ConsistencyVault() {
         } catch (error: any) {
             console.error("Failed to delete video:", error);
             alert(`Failed to delete video: ${error.message}`);
+        }
+    };
+
+    // Sync descriptions from Script module to Assets
+    const handleSyncDescriptions = async () => {
+        if (!currentProject) return;
+
+        const confirmed = confirm(
+            "同步描述说明：\n\n" +
+            "此操作会将 Script 页面中的最新描述同步到所有素材。\n" +
+            "已生成的图片不会被删除，但后续重新生成时将使用新描述。\n\n" +
+            "是否继续？"
+        );
+
+        if (!confirmed) return;
+
+        try {
+            const updatedProject = await api.syncDescriptions(currentProject.id);
+            updateProject(currentProject.id, updatedProject);
+            alert("描述同步成功！");
+        } catch (error: any) {
+            console.error("Failed to sync descriptions:", error);
+            alert(`同步失败: ${error.message}`);
         }
     };
 
@@ -216,13 +367,23 @@ export default function ConsistencyVault() {
                     />
                 </div>
 
-                <button
-                    onClick={() => setIsEditingStyle(true)}
-                    className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-colors"
-                >
-                    <Paintbrush size={16} className="text-primary" />
-                    <span className="text-sm font-bold">Global Style</span>
-                </button>
+                <div className="flex gap-2">
+                    <button
+                        onClick={handleSyncDescriptions}
+                        className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-colors"
+                        title="同步 Script 页面中的描述到所有素材"
+                    >
+                        <RefreshCw size={16} className="text-blue-400" />
+                        <span className="text-sm font-bold">同步描述</span>
+                    </button>
+                    <button
+                        onClick={() => setIsEditingStyle(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg transition-colors"
+                    >
+                        <Paintbrush size={16} className="text-primary" />
+                        <span className="text-sm font-bold">Global Style</span>
+                    </button>
+                </div>
             </div>
 
             {/* Content Grid */}
@@ -287,7 +448,7 @@ export default function ConsistencyVault() {
                             generatingTypes={getAssetGeneratingTypes(selectedAssetId)}
                             stylePrompt={currentProject?.art_direction?.style_config?.positive_prompt || styles.find(s => s.id === selectedStyleId)?.prompt || ""}
                             styleNegativePrompt={currentProject?.art_direction?.style_config?.negative_prompt || styles.find(s => s.id === selectedStyleId)?.negative_prompt || ""}
-                            onGenerateVideo={(prompt: string, duration: number) => handleGenerateVideo(selectedAssetId, selectedAssetType, prompt, duration)}
+                            onGenerateVideo={(prompt: string, duration: number, subType: string) => handleGenerateVideo(selectedAssetId, selectedAssetType, prompt, duration, subType)}
                             onDeleteVideo={(videoId: string) => handleDeleteVideo(selectedAssetId, selectedAssetType, videoId)}
                         />
                     ) : (
@@ -303,9 +464,9 @@ export default function ConsistencyVault() {
                             isGenerating={isAssetGenerating(selectedAssetId)}
                             stylePrompt={currentProject?.art_direction?.style_config?.positive_prompt || styles.find(s => s.id === selectedStyleId)?.prompt || ""}
                             styleNegativePrompt={currentProject?.art_direction?.style_config?.negative_prompt || styles.find(s => s.id === selectedStyleId)?.negative_prompt || ""}
-                            onGenerateVideo={(prompt: string, duration: number) => handleGenerateVideo(selectedAssetId, selectedAssetType, prompt, duration)}
+                            onGenerateVideo={(prompt: string, duration: number) => handleGenerateVideo(selectedAssetId, selectedAssetType, prompt, duration, "video")}
                             onDeleteVideo={(videoId: string) => handleDeleteVideo(selectedAssetId, selectedAssetType, videoId)}
-                            isGeneratingVideo={getAssetGeneratingTypes(selectedAssetId).some((t: any) => t.type === "video")}
+                            isGeneratingVideo={getAssetGeneratingTypes(selectedAssetId).some((t: any) => t.type.startsWith("video"))}
                         />
                     )
                 )}
@@ -676,7 +837,7 @@ function AssetCard({ asset, type, isGenerating, onGenerate, onToggleLock, onClic
     };
 
     const imageUrl = (type === 'character' ? (asset.avatar_url || asset.image_url) : asset.image_url);
-    const fullImageUrl = imageUrl?.startsWith("http") ? imageUrl : `${API_URL}/files/${imageUrl}`;
+    const fullImageUrl = getAssetUrl(imageUrl);
 
     return (
         <motion.div

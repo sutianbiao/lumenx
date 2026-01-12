@@ -50,6 +50,24 @@ Get-ChildItem -Recurse -Directory -Filter "__pycache__" | Remove-Item -Recurse -
 # Package with PyInstaller
 Write-Host "6. Packaging with PyInstaller..."
 
+# Prepare FFmpeg
+Write-Host "5.5. Preparing FFmpeg..."
+if (-not (Test-Path "bin")) { New-Item -ItemType Directory -Path "bin" | Out-Null }
+
+if (-not (Test-Path "bin\ffmpeg.exe")) {
+    if (Get-Command ffmpeg -ErrorAction SilentlyContinue) {
+        Write-Host "   Copying FFmpeg from system path..."
+        $ffmpegPath = (Get-Command ffmpeg).Source
+        Copy-Item -Path $ffmpegPath -Destination "bin\ffmpeg.exe"
+        Write-Host "   FFmpeg copied to bin\ffmpeg.exe"
+    } else {
+        Write-Host "   Error: FFmpeg not found. Please install FFmpeg or place ffmpeg.exe in bin/" -ForegroundColor Red
+        exit 1
+    }
+} else {
+    Write-Host "   Using existing bin\ffmpeg.exe"
+}
+
 # Check if icon file exists
 $iconParam = ""
 if (Test-Path "icon.ico") {
@@ -67,6 +85,7 @@ $pyinstallerArgs = @(
     "--windowed",
     "--add-data", "static;static",
     "--add-data", "src;src",
+    "--add-binary", "bin\ffmpeg.exe;.",
     "--exclude-module", "uvloop",
     "--hidden-import=uvicorn.logging",
     "--hidden-import=uvicorn.loops",
@@ -117,6 +136,7 @@ if ($iconParam) {
         $iconParam,
         "--add-data", "static;static",
         "--add-data", "src;src",
+        "--add-binary", "bin\ffmpeg.exe;.",
         "--exclude-module", "uvloop",
         "--hidden-import=uvicorn.logging",
         "--hidden-import=uvicorn.loops",

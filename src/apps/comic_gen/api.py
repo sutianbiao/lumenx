@@ -9,8 +9,9 @@ import uuid
 from .pipeline import ComicGenPipeline
 from .models import Script, VideoTask
 from .llm import ScriptProcessor
-from ...utils.oss_utils import OSSImageUploader
+from ...utils.oss_utils import OSSImageUploader, sign_oss_urls_in_data
 from ...utils import setup_logging
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv, set_key
 
 # Setup logging to user directory
@@ -20,7 +21,11 @@ env_path = ".env"
 if os.path.exists(env_path):
     load_dotenv(env_path, override=True)
 
+# Debug: Print OSS configuration at startup
+print(f"STARTUP: OSS_ENDPOINT={os.getenv('OSS_ENDPOINT')}, OSS_BUCKET_NAME={os.getenv('OSS_BUCKET_NAME')}, OSS_BASE_PATH={os.getenv('OSS_BASE_PATH')}")
+
 app = FastAPI(title="AI Comic Gen API")
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -42,11 +47,71 @@ async def add_cache_control_header(request: Request, call_next):
 os.makedirs("output", exist_ok=True)
 os.makedirs("output/uploads", exist_ok=True)
 
-# Mount static files
+# Mount static files with multiple aliases to handle plural/singular inconsistencies
+# Legacy paths in projects.json often use 'outputs/videos' or 'outputs/assets'
+app.mount("/files/outputs/videos", StaticFiles(directory="output/video"), name="files_outputs_videos")
+app.mount("/files/outputs/assets", StaticFiles(directory="output/assets"), name="files_outputs_assets")
+app.mount("/files/outputs", StaticFiles(directory="output"), name="files_outputs")
+app.mount("/files/videos", StaticFiles(directory="output/video"), name="files_videos")
+app.mount("/files/assets", StaticFiles(directory="output/assets"), name="files_assets")
 app.mount("/files", StaticFiles(directory="output"), name="files")
+
 
 # Initialize pipeline
 pipeline = ComicGenPipeline()
+
+@app.get("/debug/config")
+async def debug_config():
+    """Diagnostic endpoint to check OSS and path configuration."""
+    uploader = OSSImageUploader()
+    return {
+        "oss_configured": uploader.is_configured,
+        "oss_bucket_initialized": uploader.bucket is not None,
+        "oss_base_path": os.getenv("OSS_BASE_PATH", "lumenx"),
+        "output_dir_exists": os.path.exists("output"),
+        "output_contents": os.listdir("output") if os.path.exists("output") else [],
+        "cwd": os.getcwd(),
+        "env_vars_present": {
+            "OSS_ENDPOINT": bool(os.getenv("OSS_ENDPOINT")),
+            "OSS_BUCKET_NAME": bool(os.getenv("OSS_BUCKET_NAME")),
+            "ALIBABA_CLOUD_ACCESS_KEY_ID": bool(os.getenv("ALIBABA_CLOUD_ACCESS_KEY_ID")),
+        }
+    }
+
+def signed_response(data):
+    """Helper to sign OSS URLs in data before returning to frontend.
+    
+    Handles Pydantic models, lists of models, and dicts.
+    Returns a JSONResponse with signed URLs.
+    """
+    if data is None:
+        return JSONResponse(content=None)
+    
+    # Convert Pydantic models to dict
+    if hasattr(data, "model_dump"):
+        processed_data = data.model_dump()
+    elif isinstance(data, list):
+        processed_data = [item.model_dump() if hasattr(item, "model_dump") else item for item in data]
+    else:
+        processed_data = data
+    
+    # Check if OSS is configured
+    uploader = OSSImageUploader()
+    if uploader.is_configured:
+        # OSS mode: sign URLs in the data
+        processed_data = sign_oss_urls_in_data(processed_data, uploader)
+    
+    # Return JSONResponse directly to avoid Pydantic re-validation stripping fields
+    return JSONResponse(content=processed_data)
+
+
+@app.get("/system/check")
+async def check_system():
+    """Check system dependencies (ffmpeg, etc.) and configuration."""
+    from utils.system_check import run_system_checks
+    return run_system_checks()
+
+
 
 
 
@@ -64,10 +129,10 @@ async def upload_file(file: UploadFile = File(...)):
         # Try uploading to OSS
         oss_url = OSSImageUploader().upload_image(file_path)
         if oss_url:
-            return {"url": oss_url}
+            return signed_response({"url": oss_url})
 
-        # Fallback to local URL
-        return {"url": f"http://localhost:17177/files/uploads/{filename}"}
+        # Fallback to local URL (relative path for frontend getAssetUrl)
+        return {"url": f"uploads/{filename}"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -80,7 +145,8 @@ class CreateProjectRequest(BaseModel):
 @app.post("/projects", response_model=Script)
 async def create_project(request: CreateProjectRequest, skip_analysis: bool = False):
     """Creates a new project from a novel text."""
-    return pipeline.create_project(request.title, request.text, skip_analysis=skip_analysis)
+    return signed_response(pipeline.create_project(request.title, request.text, skip_analysis=skip_analysis))
+
 
 
 class ReparseProjectRequest(BaseModel):
@@ -91,17 +157,19 @@ class ReparseProjectRequest(BaseModel):
 async def reparse_project(script_id: str, request: ReparseProjectRequest):
     """Re-parses the text for an existing project, replacing all entities."""
     try:
-        return pipeline.reparse_project(script_id, request.text)
+        return signed_response(pipeline.reparse_project(script_id, request.text))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/projects/", response_model=List[Script])
+
+@app.get("/projects/", response_model=List[dict])
 async def list_projects():
     """Lists all projects from backend storage."""
-    return list(pipeline.scripts.values())
+    scripts = list(pipeline.scripts.values())
+    return signed_response(scripts)
 
 
 class EnvConfig(BaseModel):
@@ -224,6 +292,9 @@ async def update_env_config(config: EnvConfig):
         # Save to file
         save_user_config(config_dict)
         
+        # Reset OSS singleton to pick up new config
+        OSSImageUploader.reset_instance()
+        
         config_path = get_user_config_path()
         return {"status": "success", "message": f"Configuration saved to {config_path}"}
     except Exception as e:
@@ -237,7 +308,8 @@ async def get_project(script_id: str):
     script = pipeline.get_script(script_id)
     if not script:
         raise HTTPException(status_code=404, detail="Project not found")
-    return script
+    return signed_response(script)
+
 
 
 @app.delete("/projects/{script_id}")
@@ -255,6 +327,26 @@ async def delete_project(script_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/projects/{script_id}/sync_descriptions", response_model=Script)
+async def sync_descriptions(script_id: str):
+    """
+    Syncs entity descriptions from Script module to Assets module.
+    
+    This endpoint forces a refresh of the project data, ensuring that any
+    description changes made in the Script module are reflected in Assets.
+    
+    Note: This only syncs descriptions; generated images/videos are preserved.
+    """
+    try:
+        updated_script = pipeline.sync_descriptions_from_script_entities(script_id)
+        return signed_response(updated_script)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 class AddCharacterRequest(BaseModel):
     name: str
     description: str
@@ -264,7 +356,7 @@ async def add_character(script_id: str, request: AddCharacterRequest):
     """Adds a new character."""
     try:
         updated_script = pipeline.add_character(script_id, request.name, request.description)
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -275,7 +367,7 @@ async def delete_character(script_id: str, char_id: str):
     """Deletes a character."""
     try:
         updated_script = pipeline.delete_character(script_id, char_id)
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -290,7 +382,7 @@ async def add_scene(script_id: str, request: AddSceneRequest):
     """Adds a new scene."""
     try:
         updated_script = pipeline.add_scene(script_id, request.name, request.description)
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -301,7 +393,7 @@ async def delete_scene(script_id: str, scene_id: str):
     """Deletes a scene."""
     try:
         updated_script = pipeline.delete_scene(script_id, scene_id)
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -321,7 +413,7 @@ async def update_project_style(script_id: str, request: UpdateStyleRequest):
             request.style_preset,
             request.style_prompt
         )
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -343,26 +435,27 @@ async def generate_assets(script_id: str, background_tasks: BackgroundTasks):
 
     try:
         updated_script = pipeline.generate_assets(script_id)
-        return updated_script
+        return signed_response(updated_script)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 class GenerateMotionRefRequest(BaseModel):
     """Request model for generating Motion Reference videos."""
     asset_id: str
-    asset_type: str  # 'full_body' | 'head_shot'
+    asset_type: str  # 'full_body' | 'head_shot' for characters; 'scene' | 'prop' for scenes and props
     prompt: Optional[str] = None
     audio_url: Optional[str] = None  # Driving audio for lip-sync
     duration: int = 5
     batch_size: int = 1
 
 
-@app.post("/projects/{script_id}/assets/generate_motion_ref", response_model=Script)
-async def generate_motion_ref(script_id: str, request: GenerateMotionRefRequest):
-    """Generates a Motion Reference video for an asset (Full Body or Headshot)."""
+@app.post("/projects/{script_id}/assets/generate_motion_ref")
+async def generate_motion_ref(script_id: str, request: GenerateMotionRefRequest, background_tasks: BackgroundTasks):
+    """Generates a Motion Reference video for an asset (Character Full Body/Headshot, Scene, or Prop)."""
     try:
-        updated_script = pipeline.generate_motion_ref(
+        script, task_id = pipeline.create_motion_ref_task(
             script_id=script_id,
             asset_id=request.asset_id,
             asset_type=request.asset_type,
@@ -371,7 +464,15 @@ async def generate_motion_ref(script_id: str, request: GenerateMotionRefRequest)
             duration=request.duration,
             batch_size=request.batch_size
         )
-        return updated_script
+        
+        # Add background processing
+        background_tasks.add_task(pipeline.process_motion_ref_task, script_id, task_id)
+        
+        # Return script with task_id for frontend polling
+        response_data = script.model_dump() if hasattr(script, 'model_dump') else script.dict()
+        response_data["_task_id"] = task_id
+        return signed_response(response_data)
+
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -383,9 +484,10 @@ async def generate_storyboard(script_id: str):
     """Triggers storyboard generation."""
     try:
         updated_script = pipeline.generate_storyboard(script_id)
-        return updated_script
+        return signed_response(updated_script)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @app.post("/projects/{script_id}/generate_video", response_model=Script)
@@ -393,9 +495,10 @@ async def generate_video(script_id: str):
     """Triggers video generation."""
     try:
         updated_script = pipeline.generate_video(script_id)
-        return updated_script
+        return signed_response(updated_script)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 @app.post("/projects/{script_id}/generate_audio", response_model=Script)
@@ -403,9 +506,10 @@ async def generate_audio(script_id: str):
     """Triggers audio generation."""
     try:
         updated_script = pipeline.generate_audio(script_id)
-        return updated_script
+        return signed_response(updated_script)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 class CreateVideoTaskRequest(BaseModel):
@@ -466,7 +570,8 @@ async def create_video_task(script_id: str, request: CreateVideoTaskRequest, bac
             # Add background processing
             background_tasks.add_task(pipeline.process_video_task, script_id, task_id)
 
-        return tasks
+        return signed_response(tasks)
+
     except Exception as e:
         import traceback
         traceback.print_exc()
@@ -487,11 +592,12 @@ class GenerateAssetRequest(BaseModel):
     model_name: Optional[str] = None  # Override model, or use project's t2i_model setting
 
 
-@app.post("/projects/{script_id}/assets/generate", response_model=Script)
-async def generate_single_asset(script_id: str, request: GenerateAssetRequest):
-    """Generates a single asset with specific options."""
+@app.post("/projects/{script_id}/assets/generate")
+async def generate_single_asset(script_id: str, request: GenerateAssetRequest, background_tasks: BackgroundTasks):
+    """Generates a single asset with specific options (async).
+    Returns immediately with task_id for polling progress."""
     try:
-        updated_script = pipeline.generate_asset(
+        script, task_id = pipeline.create_asset_generation_task(
             script_id,
             request.asset_id,
             request.asset_type,
@@ -505,11 +611,35 @@ async def generate_single_asset(script_id: str, request: GenerateAssetRequest):
             request.batch_size,
             request.model_name
         )
-        return updated_script
+        
+        # Add background processing
+        background_tasks.add_task(pipeline.process_asset_generation_task, task_id)
+        
+        # Return script with task_id for frontend polling
+        response_data = script.model_dump() if hasattr(script, 'model_dump') else script.dict()
+        response_data["_task_id"] = task_id
+        return signed_response(response_data)
+
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/tasks/{task_id}")
+async def get_task_status(task_id: str):
+    """Returns the status of an asset generation task for polling."""
+    status = pipeline.get_asset_generation_task_status(task_id)
+    if not status:
+        raise HTTPException(status_code=404, detail="Task not found")
+    
+    # If completed, return the updated script as well
+    if status["status"] == "completed":
+        script = pipeline.get_script(status["script_id"])
+        if script:
+            status["script"] = signed_response(script).body.decode('utf-8')
+    
+    return status
 
 
 class GenerateAssetVideoRequest(BaseModel):
@@ -534,7 +664,8 @@ async def generate_asset_video(script_id: str, asset_type: str, asset_id: str, r
         # Add background processing
         background_tasks.add_task(pipeline.process_video_task, script_id, task_id)
         
-        return script
+        return signed_response(script)
+
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -551,11 +682,12 @@ async def delete_asset_video(script_id: str, asset_type: str, asset_id: str, vid
             asset_type,
             video_id
         )
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 class ToggleLockRequest(BaseModel):
@@ -572,11 +704,12 @@ async def toggle_asset_lock(script_id: str, request: ToggleLockRequest):
             request.asset_id,
             request.asset_type
         )
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 class UpdateAssetImageRequest(BaseModel):
@@ -595,11 +728,12 @@ async def update_asset_image(script_id: str, request: UpdateAssetImageRequest):
             request.asset_type,
             request.image_url
         )
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 class UpdateAssetAttributesRequest(BaseModel):
@@ -618,11 +752,12 @@ async def update_asset_attributes(script_id: str, request: UpdateAssetAttributes
             request.asset_type,
             request.attributes
         )
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 class UpdateAssetDescriptionRequest(BaseModel):
@@ -641,11 +776,12 @@ async def update_asset_description(script_id: str, request: UpdateAssetDescripti
             request.asset_type,
             request.description
         )
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 class SelectVariantRequest(BaseModel):
@@ -665,7 +801,7 @@ async def select_asset_variant(script_id: str, request: SelectVariantRequest):
             request.variant_id,
             request.generation_type
         )
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -686,11 +822,12 @@ async def delete_asset_variant(script_id: str, request: DeleteVariantRequest):
             request.asset_type,
             request.variant_id
         )
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 class FavoriteVariantRequest(BaseModel):
     asset_id: str
@@ -711,7 +848,7 @@ async def toggle_variant_favorite(script_id: str, request: FavoriteVariantReques
             request.is_favorited,
             request.generation_type
         )
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -740,7 +877,7 @@ async def update_model_settings(script_id: str, request: UpdateModelSettingsRequ
             request.prop_aspect_ratio,
             request.storyboard_aspect_ratio
         )
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -756,7 +893,7 @@ async def bind_voice(script_id: str, char_id: str, request: BindVoiceRequest):
     """Binds a voice to a character."""
     try:
         updated_script = pipeline.bind_voice(script_id, char_id, request.voice_id, request.voice_name)
-        return updated_script
+        return signed_response(updated_script)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -777,7 +914,7 @@ async def generate_line_audio(script_id: str, frame_id: str, request: GenerateLi
     """Generates audio for a specific frame with parameters."""
     try:
         updated_script = pipeline.generate_dialogue_line(script_id, frame_id, request.speed, request.pitch)
-        return updated_script
+        return signed_response(updated_script)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -790,7 +927,7 @@ async def generate_mix_sfx(script_id: str):
     # Let's just call generate_audio again, it's idempotent-ish.
     try:
         updated_script = pipeline.generate_audio(script_id)
-        return updated_script
+        return signed_response(updated_script)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -800,7 +937,7 @@ async def generate_mix_bgm(script_id: str):
     """Triggers BGM generation."""
     try:
         updated_script = pipeline.generate_audio(script_id)
-        return updated_script
+        return signed_response(updated_script)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -817,7 +954,7 @@ async def toggle_frame_lock(script_id: str, request: ToggleFrameLockRequest):
             script_id,
             request.frame_id
         )
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -847,7 +984,7 @@ async def update_frame(script_id: str, request: UpdateFrameRequest):
             scene_id=request.scene_id,
             character_ids=request.character_ids
         )
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -870,7 +1007,7 @@ async def add_frame(script_id: str, request: AddFrameRequest):
             request.camera_angle,
             request.insert_at
         )
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -881,7 +1018,7 @@ async def delete_frame(script_id: str, frame_id: str):
     """Deletes a storyboard frame."""
     try:
         updated_script = pipeline.delete_frame(script_id, frame_id)
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -896,7 +1033,7 @@ async def copy_frame(script_id: str, request: CopyFrameRequest):
     """Copies a storyboard frame."""
     try:
         updated_script = pipeline.copy_frame(script_id, request.frame_id, request.insert_at)
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -910,7 +1047,7 @@ async def reorder_frames(script_id: str, request: ReorderFramesRequest):
     """Reorders storyboard frames."""
     try:
         updated_script = pipeline.reorder_frames(script_id, request.frame_ids)
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -934,7 +1071,7 @@ async def render_frame(script_id: str, request: RenderFrameRequest):
             request.prompt,
             request.batch_size
         )
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -950,7 +1087,7 @@ async def select_video(script_id: str, frame_id: str, request: SelectVideoReques
     """Selects a video variant for a specific frame."""
     try:
         updated_script = pipeline.select_video_for_frame(script_id, frame_id, request.video_id)
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:
@@ -963,7 +1100,7 @@ async def merge_videos(script_id: str):
     import traceback
     try:
         merged_script = pipeline.merge_videos(script_id)
-        return merged_script
+        return signed_response(merged_script)
     except ValueError as e:
         # Known validation errors (no videos, etc.)
         print(f"[MERGE ERROR] Validation failed: {e}")
@@ -1025,7 +1162,7 @@ async def save_art_direction(script_id: str, request: SaveArtDirectionRequest):
             request.custom_styles,
             request.ai_recommendations
         )
-        return updated_script
+        return signed_response(updated_script)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
     except Exception as e:

@@ -5,6 +5,7 @@ import time
 import uuid
 import subprocess
 import threading
+import platform
 from urllib.parse import quote
 from .models import Script, GenerationStatus, VideoTask, Character, Scene, StoryboardFrame
 from .llm import ScriptProcessor
@@ -14,6 +15,7 @@ from .video import VideoGenerator
 from .audio import AudioGenerator
 from .export import ExportManager
 from ...utils import get_logger
+from ...utils.system_check import get_ffmpeg_path, get_ffmpeg_install_instructions
 
 logger = get_logger(__name__)
 
@@ -30,6 +32,11 @@ class ComicGenPipeline:
         self.data_file = "output/projects.json"
         self._save_lock = threading.Lock()  # Lock to prevent concurrent file writes
         self.scripts: Dict[str, Script] = self._load_data()
+        
+        # Task management for async asset generation
+        # Format: { task_id: { status: str, progress: int, error: str, script_id: str, asset_id: str, created_at: float } }
+        self.asset_generation_tasks: Dict[str, Dict[str, Any]] = {}
+        self.video_generation_tasks: Dict[str, Dict[str, Any]] = {}
 
     # ... (existing methods)
 
@@ -225,6 +232,205 @@ class ComicGenPipeline:
         finally:
             self._save_data()
         
+        return script
+
+    def create_asset_generation_task(self, script_id: str, asset_id: str, asset_type: str, 
+                                      style_preset: str = None, reference_image_url: str = None, 
+                                      style_prompt: str = None, generation_type: str = "all", 
+                                      prompt: str = None, apply_style: bool = True, 
+                                      negative_prompt: str = None, batch_size: int = 1, 
+                                      model_name: str = None) -> Tuple[Script, str]:
+        """Creates an async asset generation task and returns (script, task_id) immediately."""
+        script = self.scripts.get(script_id)
+        if not script:
+            raise ValueError("Script not found")
+        
+        # Find the asset and set to PROCESSING
+        asset_list = []
+        if asset_type == "character":
+            asset_list = script.characters
+        elif asset_type == "scene":
+            asset_list = script.scenes
+        elif asset_type == "prop":
+            asset_list = script.props
+        else:
+            raise ValueError(f"Invalid asset_type: {asset_type}")
+        
+        target_asset = next((a for a in asset_list if a.id == asset_id), None)
+        if not target_asset:
+            raise ValueError(f"{asset_type.capitalize()} {asset_id} not found")
+        
+        target_asset.status = GenerationStatus.PROCESSING
+        
+        # Create task
+        task_id = str(uuid.uuid4())
+        self.asset_generation_tasks[task_id] = {
+            "status": "pending",  # pending -> processing -> completed/failed
+            "progress": 0,
+            "error": None,
+            "script_id": script_id,
+            "asset_id": asset_id,
+            "asset_type": asset_type,
+            "created_at": time.time(),
+            # Store all params for later processing
+            "params": {
+                "style_preset": style_preset,
+                "reference_image_url": reference_image_url,
+                "style_prompt": style_prompt,
+                "generation_type": generation_type,
+                "prompt": prompt,
+                "apply_style": apply_style,
+                "negative_prompt": negative_prompt,
+                "batch_size": batch_size,
+                "model_name": model_name
+            }
+        }
+        
+        self._save_data()
+        return script, task_id
+
+    def process_asset_generation_task(self, task_id: str):
+        """Processes an asset generation task in the background."""
+        task = self.asset_generation_tasks.get(task_id)
+        if not task:
+            logger.error(f"Task {task_id} not found")
+            return
+        
+        task["status"] = "processing"
+        
+        try:
+            params = task["params"]
+            # Call the synchronous generate_asset method
+            self.generate_asset(
+                task["script_id"],
+                task["asset_id"],
+                task["asset_type"],
+                params["style_preset"],
+                params["reference_image_url"],
+                params["style_prompt"],
+                params["generation_type"],
+                params["prompt"],
+                params["apply_style"],
+                params["negative_prompt"],
+                params["batch_size"],
+                params["model_name"]
+            )
+            task["status"] = "completed"
+            task["progress"] = 100
+            logger.info(f"Task {task_id} completed successfully")
+        except Exception as e:
+            task["status"] = "failed"
+            task["error"] = str(e)
+            logger.error(f"Task {task_id} failed: {e}")
+
+    def get_asset_generation_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """Returns the status of an asset generation task."""
+        # Check image tasks first
+        task = self.asset_generation_tasks.get(task_id)
+        if not task:
+            # Then check video tasks
+            task = self.video_generation_tasks.get(task_id)
+            
+        if not task:
+            return None
+        
+        return {
+            "task_id": task_id,
+            "status": task["status"],
+            "progress": task.get("progress", 0),
+            "error": task.get("error"),
+            "asset_id": task.get("asset_id"),
+            "asset_type": task.get("asset_type"),
+            "script_id": task.get("script_id"),
+            "created_at": task.get("created_at")
+        }
+
+    def create_motion_ref_task(self, script_id: str, asset_id: str, asset_type: str, 
+                                prompt: Optional[str] = None, audio_url: Optional[str] = None, 
+                                duration: int = 5, batch_size: int = 1) -> Tuple[Script, str]:
+        """Creates an async motion reference generation task."""
+        script = self.scripts.get(script_id)
+        if not script:
+            raise ValueError("Script not found")
+            
+        task_id = str(uuid.uuid4())
+        self.video_generation_tasks[task_id] = {
+            "status": "pending",
+            "progress": 0,
+            "error": None,
+            "script_id": script_id,
+            "asset_id": asset_id,
+            "asset_type": asset_type,
+            "created_at": time.time(),
+            "params": {
+                "prompt": prompt,
+                "audio_url": audio_url,
+                "duration": duration,
+                "batch_size": batch_size
+            }
+        }
+        
+        self._save_data()
+        return script, task_id
+
+    def process_motion_ref_task(self, script_id: str, task_id: str):
+        """Processes a video generation task in the background."""
+        task = self.video_generation_tasks.get(task_id)
+        if not task:
+            logger.error(f"Video task {task_id} not found")
+            return
+            
+        task["status"] = "processing"
+        
+        try:
+            params = task["params"]
+            # Call the synchronous generate_motion_ref method
+            self.generate_motion_ref(
+                script_id=script_id,
+                asset_id=task["asset_id"],
+                asset_type=task["asset_type"],
+                prompt=params["prompt"],
+                audio_url=params["audio_url"],
+                duration=params["duration"],
+                batch_size=params["batch_size"]
+            )
+            task["status"] = "completed"
+            task["progress"] = 100
+            logger.info(f"Video task {task_id} completed successfully")
+        except Exception as e:
+            task["status"] = "failed"
+            task["error"] = str(e)
+            logger.error(f"Video task {task_id} failed: {e}")
+
+    def sync_descriptions_from_script_entities(self, script_id: str) -> Script:
+        """
+        Syncs entity descriptions from ScriptProcessor parsed entities.
+        This clears saved prompts so the UI will regenerate them from the current description.
+        
+        Note: This only updates prompts, not generated images/videos.
+        """
+        script = self.scripts.get(script_id)
+        if not script:
+            raise ValueError("Script not found")
+        
+        # Clear saved prompts for all characters so UI will regenerate from description
+        for character in script.characters:
+            character.full_body_prompt = None
+            character.three_view_prompt = None
+            character.headshot_prompt = None
+            character.video_prompt = None
+        
+        # Scenes and props might also have prompts to clear (if applicable)
+        for scene in script.scenes:
+            if hasattr(scene, 'prompt'):
+                scene.prompt = None
+        
+        for prop in script.props:
+            if hasattr(prop, 'prompt'):
+                prop.prompt = None
+        
+        self._save_data()
+        logger.info(f"Descriptions synced for script {script_id}: cleared prompts for {len(script.characters)} characters, {len(script.scenes)} scenes, {len(script.props)} props")
         return script
 
     def add_character(self, script_id: str, name: str, description: str) -> Script:
@@ -521,84 +727,100 @@ class ComicGenPipeline:
         self,
         script_id: str,
         asset_id: str,
-        asset_type: str,  # 'full_body' | 'head_shot'
+        asset_type: str,  # 'full_body' | 'head_shot' for characters; 'scene' | 'prop' for scenes and props
         prompt: Optional[str] = None,
         audio_url: Optional[str] = None,
         duration: int = 5,
         batch_size: int = 1
     ) -> Script:
-        """Generate Motion Reference video for an asset (Full Body or Headshot).
-        
+        """Generate Motion Reference video for an asset (Character Full Body/Headshot, Scene, or Prop).
+
         Args:
             script_id: ID of the project/script
-            asset_id: ID of the character
-            asset_type: 'full_body' or 'head_shot'
+            asset_id: ID of the asset (character, scene, or prop)
+            asset_type: 'full_body' | 'head_shot' for characters; 'scene' or 'prop' for scenes and props
             prompt: Custom prompt for motion generation
             audio_url: URL of driving audio for lip-sync
             duration: Video duration in seconds (5 or 10)
             batch_size: Number of videos to generate
         """
-        from .models import VideoVariant, AssetUnit
-        
+        from .models import VideoVariant, AssetUnit, VideoTask
+
         script = self.scripts.get(script_id)
         if not script:
             raise ValueError("Script not found")
-        
-        # Find the character
-        character = next((c for c in script.characters if c.id == asset_id), None)
-        if not character:
-            raise ValueError(f"Character {asset_id} not found")
-        
-        # Get the appropriate AssetUnit
-        if asset_type == "full_body":
-            asset_unit = character.full_body
-            # Get source image from the AssetUnit or legacy field
-            if asset_unit and asset_unit.selected_image_id:
-                source_img = next(
-                    (v for v in asset_unit.image_variants if v.id == asset_unit.selected_image_id),
-                    None
-                )
-                source_image_url = source_img.url if source_img else character.full_body_image_url
-            else:
-                source_image_url = character.full_body_image_url
-            
-            # Default prompt for full body motion
-            if not prompt:
-                prompt = f"Full-body character reference video. {character.description}. Standing pose, shifting weight slightly, natural hand gestures, turning body 30 degrees left and right. Head to toe shot, stable camera, flat lighting."
-        
-        elif asset_type == "head_shot":
-            asset_unit = character.head_shot
-            # Get source image from the AssetUnit or legacy field
-            if asset_unit and asset_unit.selected_image_id:
-                source_img = next(
-                    (v for v in asset_unit.image_variants if v.id == asset_unit.selected_image_id),
-                    None
-                )
-                source_image_url = source_img.url if source_img else character.headshot_image_url
-            else:
-                source_image_url = character.headshot_image_url
-            
-            # Default prompt for headshot motion
-            if not prompt:
-                prompt = f"High-fidelity portrait video reference. {character.description}. Facing camera, speaking naturally matching the audio, subtle head movements, blinking, rich micro-expressions. 4K, studio lighting, stable camera."
+
+        # Find the target asset based on type
+        target_asset = None
+        asset_display_name = ""
+
+        if asset_type in ["full_body", "head_shot"]:
+            # Find the character
+            target_asset = next((c for c in script.characters if c.id == asset_id), None)
+            asset_display_name = "Character"
+        elif asset_type == "scene":
+            # Find the scene
+            target_asset = next((s for s in script.scenes if s.id == asset_id), None)
+            asset_display_name = "Scene"
+        elif asset_type == "prop":
+            # Find the prop
+            target_asset = next((p for p in script.props if p.id == asset_id), None)
+            asset_display_name = "Prop"
         else:
-            raise ValueError(f"Invalid asset_type: {asset_type}. Must be 'full_body' or 'head_shot'")
-        
+            raise ValueError(f"Invalid asset_type: {asset_type}. Must be 'full_body', 'head_shot', 'scene', or 'prop'")
+
+        if not target_asset:
+            raise ValueError(f"{asset_display_name} {asset_id} not found")
+
+        # Get the appropriate AssetUnit or image URL based on the asset type
+        asset_unit = None  # For characters with AssetUnit
+        generated_videos = []  # Store generated videos
+
+        if asset_type in ["full_body", "head_shot"]:
+            # Handle character asset
+            asset_unit = getattr(target_asset, asset_type, None)
+            # Get source image from the AssetUnit or legacy field
+            if asset_unit and asset_unit.selected_image_id:
+                source_img = next(
+                    (v for v in asset_unit.image_variants if v.id == asset_unit.selected_image_id),
+                    None
+                )
+                source_image_url = source_img.url if source_img else (
+                    target_asset.full_body_image_url if asset_type == "full_body" else target_asset.headshot_image_url
+                )
+            else:
+                source_image_url = (
+                    target_asset.full_body_image_url if asset_type == "full_body"
+                    else target_asset.headshot_image_url
+                )
+
+            # Default prompt for character
+            if not prompt:
+                if audio_url:
+                    prompt = f"{asset_type.replace('_', ' ').title()} character reference video. {target_asset.description}. The character is speaking naturally matching the audio, with accurate lip-sync and facial expressions. Stable camera, high quality, 4k."
+                else:
+                    prompt = f"{asset_type.replace('_', ' ').title()} character reference video. {target_asset.description}. Looking around, breathing, slight movement, subtle gestures. Stable camera, high quality, 4k."
+        else:
+            # Handle scene or prop assets
+            source_image_url = target_asset.image_url
+            # Default prompt for scene and prop
+            if not prompt:
+                if asset_type == "scene":
+                    if audio_url:
+                        prompt = f"Cinematic scene video reference of {target_asset.name}. {target_asset.description}. Ambient motion, lighting changes, natural elements moving, birds, clouds. Soundscape matching the audio. High quality, 4k."
+                    else:
+                        prompt = f"Cinematic scene video reference of {target_asset.name}. {target_asset.description}. Ambient motion, lighting changes, natural elements moving, birds, clouds. Slow pan across the scene. High quality, 4k."
+                else:  # prop
+                    if audio_url:
+                        prompt = f"Cinematic prop video reference of {target_asset.name}. {target_asset.description}. Rotating object, detailed textures visible, ambient motion, subtle movements matching audio. High quality, 4k."
+                    else:
+                        prompt = f"Cinematic prop video reference of {target_asset.name}. {target_asset.description}. Rotating object, detailed textures visible, ambient motion, subtle movements. High quality, 4k."
+
+        # Check if source image exists
         if not source_image_url:
             raise ValueError(f"No source image available for {asset_type}. Please generate a static image first.")
-        
-        # Ensure AssetUnit exists
-        if asset_unit is None:
-            asset_unit = AssetUnit()
-            if asset_type == "full_body":
-                character.full_body = asset_unit
-            else:
-                character.head_shot = asset_unit
-        
-        asset_unit.video_prompt = prompt
-        
-        # Generate videos
-        generated_videos = []
+
+        # Generate videos based on the asset type
         for i in range(batch_size):
             try:
                 # Call video generator (I2V)
@@ -608,27 +830,63 @@ class ComicGenPipeline:
                     duration=duration,
                     audio_url=audio_url
                 )
-                
+
                 if video_result and video_result.get("video_url"):
-                    video_variant = VideoVariant(
-                        id=f"video_{uuid.uuid4().hex[:8]}",
-                        url=video_result["video_url"],
-                        prompt_used=prompt,
-                        audio_url=audio_url,
-                        source_image_id=asset_unit.selected_image_id
-                    )
-                    asset_unit.video_variants.append(video_variant)
-                    
-                    # Auto-select the first generated video
-                    if not asset_unit.selected_video_id:
-                        asset_unit.selected_video_id = video_variant.id
-                    
-                    generated_videos.append(video_variant)
-                    logger.info(f"Generated motion ref video: {video_variant.id}")
+                    if asset_type in ["full_body", "head_shot"]:
+                        # For characters, create VideoVariant in AssetUnit
+                        video_variant = VideoVariant(
+                            id=f"video_{uuid.uuid4().hex[:8]}",
+                            url=video_result["video_url"],
+                            prompt_used=prompt,
+                            audio_url=audio_url,
+                            source_image_id=None  # Don't set this to avoid complications
+                        )
+                        asset_unit.video_variants.append(video_variant)
+
+                        # Auto-select the first generated video
+                        if not asset_unit.selected_video_id:
+                            asset_unit.selected_video_id = video_variant.id
+
+                        generated_videos.append(video_variant)
+                        logger.info(f"Generated motion ref video: {video_variant.id}")
+                    else:
+                        # For scenes and props, create VideoTask and add to asset's video_assets
+                        video_task = VideoTask(
+                            id=f"video_{uuid.uuid4().hex[:8]}",
+                            project_id=script_id,
+                            asset_id=asset_id,
+                            image_url=source_image_url,
+                            prompt=prompt,
+                            status="completed",  # Since generation is done in this step
+                            video_url=video_result["video_url"],
+                            duration=duration,
+                            created_at=time.time(),
+                            generate_audio=bool(audio_url),
+                            model="wan2.6-i2v",
+                            generation_mode="i2v"  # Image to video (motion reference)
+                        )
+
+                        # Add to the asset's video_assets
+                        target_asset.video_assets.append(video_task)
+                        generated_videos.append(video_task)
+                        logger.info(f"Generated motion ref video for {asset_type}: {video_task.id}")
             except Exception as e:
-                logger.error(f"Failed to generate motion ref video: {e}")
-        
-        asset_unit.video_updated_at = time.time()
+                logger.error(f"Failed to generate motion ref video for {asset_type}: {e}")
+
+        # For character assets, update the AssetUnit
+        if asset_type in ["full_body", "head_shot"]:
+            # Ensure AssetUnit exists
+            if asset_unit is None:
+                asset_unit = AssetUnit()
+                setattr(target_asset, asset_type, asset_unit)
+
+            asset_unit.video_prompt = prompt
+            asset_unit.video_updated_at = time.time()
+        # For scene and prop assets, the video tasks are already added in the generation loop above
+
+        if batch_size > 0 and not generated_videos:
+            raise RuntimeError(f"Failed to generate any motion reference videos for {asset_type}")
+
         self._save_data()
         return script
 
@@ -854,20 +1112,40 @@ class ComicGenPipeline:
 
     def merge_videos(self, script_id: str) -> Script:
         """Step 5b: Merge selected videos into a single file."""
-        import shutil
-        
         script = self.scripts.get(script_id)
         if not script:
             raise ValueError("Script not found")
         
         logger.info(f"[MERGE] Starting video merge for script {script_id}")
         
-        # Check if ffmpeg is available
-        ffmpeg_path = shutil.which("ffmpeg")
+        # Check if ffmpeg is available (prioritize bundled version)
+        ffmpeg_path = get_ffmpeg_path()
         if not ffmpeg_path:
-            logger.error("[MERGE] FFmpeg not found in PATH!")
-            raise RuntimeError("FFmpeg not found. Please install FFmpeg: https://ffmpeg.org/download.html")
-        logger.info(f"[MERGE] FFmpeg found at: {ffmpeg_path}")
+            install_instructions = get_ffmpeg_install_instructions()
+            error_msg = (
+                "FFmpeg is required for video merging but was not found.\n\n"
+                f"{install_instructions}\n\n"
+                "After installation, restart the application."
+            )
+            logger.error(f"[MERGE] FFmpeg not found. {error_msg}")
+            raise RuntimeError(error_msg)
+        
+        # Log ffmpeg version for debugging
+        try:
+            version_result = subprocess.run(
+                [ffmpeg_path, "-version"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            if version_result.returncode == 0:
+                version_line = version_result.stdout.split('\n')[0] if version_result.stdout else "Unknown"
+                logger.info(f"[MERGE] Using FFmpeg: {version_line}")
+                logger.info(f"[MERGE] FFmpeg path: {ffmpeg_path}")
+            else:
+                logger.warning(f"[MERGE] Could not get FFmpeg version (exit code {version_result.returncode})")
+        except Exception as e:
+            logger.warning(f"[MERGE] Could not get FFmpeg version: {e}")
             
         # Collect video paths
         video_paths = []
@@ -926,11 +1204,19 @@ class ComicGenPipeline:
         
         logger.info(f"[MERGE] Output path: {output_path}")
         
+        # Log video file details for debugging
+        for i, path in enumerate(abs_video_paths):
+            try:
+                size_mb = os.path.getsize(path) / (1024 * 1024)
+                logger.info(f"[MERGE] Input video {i+1}: {os.path.basename(path)} ({size_mb:.2f} MB)")
+            except Exception as e:
+                logger.warning(f"[MERGE] Could not get size for video {i+1}: {e}")
+        
         # Run ffmpeg
         # Use re-encoding for better compatibility (slower but more reliable)
         # -c:v libx264 -c:a aac ensures consistent output format
         cmd = [
-            "ffmpeg", "-y",
+            ffmpeg_path, "-y",  # Use the detected ffmpeg path
             "-f", "concat",
             "-safe", "0",
             "-i", list_path,
@@ -944,6 +1230,7 @@ class ComicGenPipeline:
         ]
         
         logger.info(f"[MERGE] Running FFmpeg command: {' '.join(cmd)}")
+        logger.info(f"[MERGE] Platform: {platform.system()} {platform.release()}")
         
         try:
             result = subprocess.run(cmd, check=True, capture_output=True, timeout=600)  # 10 min timeout for re-encoding
@@ -965,10 +1252,105 @@ class ComicGenPipeline:
         except subprocess.CalledProcessError as e:
             stderr_msg = e.stderr.decode() if e.stderr else "No error output"
             stdout_msg = e.stdout.decode() if e.stdout else "No output"
+            
+            # Log full details for debugging
             logger.error(f"[MERGE] FFmpeg failed with exit code {e.returncode}")
+            logger.error(f"[MERGE] FFmpeg command: {' '.join(cmd)}")
             logger.error(f"[MERGE] FFmpeg stderr: {stderr_msg}")
             logger.error(f"[MERGE] FFmpeg stdout: {stdout_msg}")
-            raise RuntimeError(f"FFmpeg merge failed: {stderr_msg}")
+            logger.error(f"[MERGE] Video files attempted: {[os.path.basename(p) for p in abs_video_paths]}")
+            
+            # Extract user-friendly error message
+            user_msg = self._extract_ffmpeg_error_message(stderr_msg, abs_video_paths)
+            raise RuntimeError(user_msg)
+    
+    def _extract_ffmpeg_error_message(self, stderr: str, video_paths: List[str]) -> str:
+        """
+        Extract a user-friendly error message from ffmpeg stderr output.
+        
+        Args:
+            stderr: The stderr output from ffmpeg
+            video_paths: List of video file paths that were being processed
+            
+        Returns:
+            A user-friendly error message
+        """
+        if not stderr:
+            return "FFmpeg merge failed with no error output. Please check the log files."
+        
+        stderr_lower = stderr.lower()
+        
+        # Common error patterns with user-friendly messages
+        if "no such file or directory" in stderr_lower:
+            return (
+                "One or more video files could not be found.\n"
+                "The videos may have been deleted or moved.\n"
+                "Please try regenerating the missing videos."
+            )
+        
+        if "invalid data found" in stderr_lower or "invalid file" in stderr_lower or "moov atom not found" in stderr_lower:
+            return (
+                "One or more video files are corrupted or incomplete.\n"
+                "This can happen if video generation was interrupted.\n"
+                "Please try regenerating the affected videos."
+            )
+        
+        if ("codec" in stderr_lower and ("not supported" in stderr_lower or "unknown" in stderr_lower)):
+            return (
+                "Video codec compatibility issue detected.\n"
+                "The video format may not be supported by your FFmpeg installation.\n"
+                "Try updating FFmpeg to the latest version."
+            )
+        
+        if "permission denied" in stderr_lower or "access is denied" in stderr_lower:
+            return (
+                "Permission denied when accessing video files.\n"
+                "Please check that the application has read/write permissions\n"
+                "for the output directory."
+            )
+        
+        if "disk full" in stderr_lower or "no space" in stderr_lower:
+            return (
+                "Insufficient disk space to create the merged video.\n"
+                "Please free up some space and try again."
+            )
+        
+        if "height not divisible" in stderr_lower or "width not divisible" in stderr_lower:
+            return (
+                "Video resolution compatibility issue.\n"
+                "The videos have incompatible dimensions.\n"
+                "This should not happen - please report this issue."
+            )
+        
+        if "invalid argument" in stderr_lower:
+            # Check if it's related to file list
+            if any("filelist" in line.lower() or "concat" in line.lower() for line in stderr.split('\n')):
+                return (
+                    "FFmpeg could not read the video file list.\n"
+                    "This might be a file path encoding issue.\n"
+                    "Please ensure video filenames don't contain special characters."
+                )
+        
+        # Fallback: extract the most relevant error line
+        # Usually the last non-empty line before the final summary
+        error_lines = [line.strip() for line in stderr.split('\n') if line.strip()]
+        if error_lines:
+            # Look for lines that seem like actual errors (contain "error", "failed", etc.)
+            for line in reversed(error_lines):
+                line_lower = line.lower()
+                if any(keyword in line_lower for keyword in ['error', 'failed', 'invalid', 'cannot', 'unable']):
+                    # Truncate if too long
+                    if len(line) > 200:
+                        line = line[:200] + "..."
+                    return f"FFmpeg error: {line}\n\nPlease check the application logs for more details."
+            
+            # If no error keyword found, use last line
+            last_line = error_lines[-1]
+            if len(last_line) > 200:
+                last_line = last_line[:200] + "..."
+            return f"FFmpeg merge failed: {last_line}\n\nPlease check the application logs for more details."
+        
+        return "FFmpeg merge failed with unknown error. Please check the application logs for details."
 
     def create_asset_video_task(self, script_id: str, asset_id: str, asset_type: str, prompt: str, duration: int = 5, aspect_ratio: str = None) -> Tuple[Script, str]:
         """Creates a new video generation task for an asset (R2V)."""

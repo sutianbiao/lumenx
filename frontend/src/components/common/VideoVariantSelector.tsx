@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { VideoTask } from '@/store/projectStore';
 import { Trash2, Check, Layers, X, Maximize2, Play, Pause, RefreshCw } from 'lucide-react';
 import { API_URL } from '@/lib/api';
+import { getAssetUrl } from '@/lib/utils';
 
 interface VideoVariantSelectorProps {
     videos: VideoTask[];
@@ -49,8 +50,7 @@ export const VideoVariantSelector: React.FC<VideoVariantSelectorProps> = ({
     const apiBase = getApiBaseUrl();
 
     const getFullUrl = (url: string) => {
-        if (!url) return "";
-        return url.startsWith('http') ? url : `${apiBase}/files/${url}`;
+        return getAssetUrl(url);
     };
 
     const displayUrl = selectedVideo?.video_url ? getFullUrl(selectedVideo.video_url) : null;

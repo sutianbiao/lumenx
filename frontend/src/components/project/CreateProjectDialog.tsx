@@ -33,8 +33,9 @@ export default function CreateProjectDialog({ isOpen, onClose }: CreateProjectDi
                 router.push(`/project/${currentProject.id}`);
             }
             onClose();
-        } catch {
-            alert("创建项目失败，请检查后端连接");
+        } catch (error: any) {
+            const errorMessage = error?.response?.data?.detail || error?.message || "请检查后端连接";
+            alert(`创建项目失败: ${errorMessage}`);
         } finally {
             setIsCreating(false);
         }

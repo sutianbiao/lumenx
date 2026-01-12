@@ -70,8 +70,11 @@ export default function ScriptProcessor() {
         if (!script) return;
         try {
             await analyzeProject(script);
-        } catch (error) {
+        } catch (error: any) {
             console.error("Failed to analyze script:", error);
+            // Extract error message from axios response or error object
+            const errorMessage = error?.response?.data?.detail || error?.message || "未知错误";
+            alert(`剧本分析失败: ${errorMessage}`);
         }
     };
 

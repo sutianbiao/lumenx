@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Download, Film, Settings, CheckCircle, FileVideo, Monitor, Captions } from "lucide-react";
 import { useProjectStore } from "@/store/projectStore";
 import { api, API_URL } from "@/lib/api";
+import { getAssetUrl } from "@/lib/utils";
 
 export default function ExportStudio() {
     const currentProject = useProjectStore((state) => state.currentProject);
@@ -152,7 +153,7 @@ export default function ExportStudio() {
                             <p className="text-gray-400 mb-8">Your video is ready to be shared with the world.</p>
 
                             <a
-                                href={`${API_URL}/files/${exportUrl}`}
+                                href={getAssetUrl(exportUrl)}
                                 target="_blank"
                                 className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-500 text-white px-8 py-4 rounded-xl font-bold text-lg transition-colors shadow-lg shadow-green-600/20"
                             >

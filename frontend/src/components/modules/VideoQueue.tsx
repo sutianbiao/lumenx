@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Loader2, RefreshCw, Copy, Download, Trash2, AlertCircle } from "lucide-react";
 
 import { VideoTask, API_URL } from "@/lib/api";
+import { getAssetUrl } from "@/lib/utils";
 
 interface VideoQueueProps {
     tasks: VideoTask[];
@@ -79,9 +80,7 @@ function TaskCard({ task, onRemix }: { task: VideoTask; onRemix: (t: VideoTask) 
 
 
     const getDisplayUrl = (url: string) => {
-        if (!url) return "";
-        if (url.startsWith("http") || url.startsWith("blob:")) return url;
-        return `${API_URL}/files/${url}`;
+        return getAssetUrl(url);
     };
 
     return (
@@ -149,7 +148,7 @@ function TaskCard({ task, onRemix }: { task: VideoTask; onRemix: (t: VideoTask) 
                         <div className="w-1/2 relative bg-black">
                             {task.video_url ? (
                                 <video
-                                    src={`${API_URL}/files/${task.video_url}`}
+                                    src={getAssetUrl(task.video_url)}
                                     controls
                                     className="w-full h-full object-cover"
                                 />

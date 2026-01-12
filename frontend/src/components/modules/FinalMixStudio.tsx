@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { Play, Pause, Volume2, Music, Mic, Video, Wand2, Download, Sliders } from "lucide-react";
 import { useProjectStore } from "@/store/projectStore";
 import { api } from "@/lib/api";
+import { getAssetUrl } from "@/lib/utils";
 
 export default function FinalMixStudio() {
     const currentProject = useProjectStore((state) => state.currentProject);
@@ -182,7 +183,7 @@ export default function FinalMixStudio() {
                             <div className="ml-24 flex-1 flex gap-1 h-12">
                                 {frames.map((frame, i) => (
                                     <div key={frame.id} className="flex-1 bg-blue-900/30 border border-blue-500/30 rounded overflow-hidden relative group-hover:brightness-110 transition-all">
-                                        {frame.image_url && <img src={frame.image_url} className="w-full h-full object-cover opacity-50" />}
+                                        {frame.image_url && <img src={getAssetUrl(frame.image_url)} className="w-full h-full object-cover opacity-50" />}
                                         <div className="absolute bottom-1 left-1 text-[10px] text-blue-200">Shot {i + 1}</div>
                                     </div>
                                 ))}

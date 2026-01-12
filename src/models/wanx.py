@@ -70,8 +70,9 @@ class WanxModel(VideoGenModel):
 
             # Get image URL (upload local file if needed, or convert Object Key to signed URL)
             img_url = kwargs.get('img_url')
+            uploader = OSSImageUploader()
+            
             if img_path:
-                uploader = OSSImageUploader()
                 if os.path.exists(img_path):
                     # Local file - upload to OSS and get signed URL
                     if uploader.is_configured:
@@ -91,11 +92,19 @@ class WanxModel(VideoGenModel):
                     # Might be an Object Key, generate signed URL
                     if uploader.is_configured:
                         img_url = uploader.sign_url_for_api(img_path)
-                        logger.info(f"Input image (Object Key), signed URL: {img_url[:80]}...")
+                        logger.info(f"Input image (Object Key from img_path), signed URL: {img_url[:80]}...")
                     else:
                         raise RuntimeError(f"OSS not configured, cannot sign Object Key: {img_path}")
                 else:
                     raise ValueError(f"Input image not found: {img_path}")
+            elif img_url:
+                # If img_url is provided but img_path is not, check if img_url is an Object Key
+                if not img_url.startswith("http") and "/" in img_url and not img_url.startswith("output/"):
+                    if uploader.is_configured:
+                        img_url = uploader.sign_url_for_api(img_url)
+                        logger.info(f"Input image (Object Key from img_url), signed URL: {img_url[:80]}...")
+                    else:
+                        logger.warning(f"OSS not configured, cannot sign Object Key in img_url: {img_url}")
 
             # Use HTTP API for wan2.6-i2v, wan2.5-i2v, or wan2.6-r2v
             if final_model_name in ['wan2.6-i2v', 'wan2.5-i2v']:

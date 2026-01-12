@@ -11,7 +11,7 @@ const getApiUrl = (): string => {
         // In development mode (port 3000/3001 = Next.js dev server)
         // Backend is on a different port
         if (port === '3000' || port === '3001') {
-            return 'http://localhost:17177';
+            return `${protocol}//${hostname}:17177`;
         }
 
         // In production/packaged mode: Frontend is served by backend
@@ -74,6 +74,11 @@ export const api = {
         return { ...res.data, originalText: res.data.original_text };
     },
 
+    syncDescriptions: async (scriptId: string) => {
+        const res = await axios.post(`${API_URL}/projects/${scriptId}/sync_descriptions`);
+        return res.data;
+    },
+
     generateAssets: async (scriptId: string) => {
         const res = await axios.post(`${API_URL}/projects/${scriptId}/generate_assets`);
         return res.data;
@@ -129,7 +134,7 @@ export const api = {
         return response.json();
     },
 
-    generateAsset: async (scriptId: string, assetId: string, assetType: string, stylePreset: string, stylePrompt?: string, generationType: string = "all", prompt: string = "", applyStyle: boolean = true, negativePrompt: string = "", batchSize: number = 1) => {
+    generateAsset: async (scriptId: string, assetId: string, assetType: string, stylePreset: string, stylePrompt?: string, generationType: string = "all", prompt: string = "", applyStyle: boolean = true, negativePrompt: string = "", batchSize: number = 1, modelName?: string) => {
         const res = await axios.post(`${API_URL}/projects/${scriptId}/assets/generate`, {
             asset_id: assetId,
             asset_type: assetType,
@@ -139,8 +144,15 @@ export const api = {
             prompt: prompt,
             apply_style: applyStyle,
             negative_prompt: negativePrompt,
-            batch_size: batchSize
+            batch_size: batchSize,
+            model_name: modelName
         });
+        // Now returns { ...script, _task_id: string }
+        return res.data;
+    },
+
+    getTaskStatus: async (taskId: string) => {
+        const res = await axios.get(`${API_URL}/tasks/${taskId}`);
         return res.data;
     },
 
@@ -150,18 +162,18 @@ export const api = {
     },
 
     /**
-     * Generate Motion Reference video for an asset (Full Body or Headshot).
+     * Generate Motion Reference video for an asset (Character Full Body/Headshot, Scene, or Prop).
      * This is part of Asset Activation v2.
      */
     generateMotionRef: async (
         scriptId: string,
         assetId: string,
-        assetType: 'full_body' | 'head_shot',
+        assetType: 'full_body' | 'head_shot' | 'scene' | 'prop',
         prompt?: string,
         audioUrl?: string,
         duration: number = 5,
         batchSize: number = 1
-    ) => {
+    ): Promise<any & { _task_id?: string }> => {
         const res = await axios.post(`${API_URL}/projects/${scriptId}/assets/generate_motion_ref`, {
             asset_id: assetId,
             asset_type: assetType,

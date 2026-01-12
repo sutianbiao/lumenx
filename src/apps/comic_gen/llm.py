@@ -44,8 +44,8 @@ class ScriptProcessor:
         logger.info(f"Parsing novel: {title}...")
         
         if not self.api_key:
-             logger.warning("Warning: DASHSCOPE_API_KEY not set. Using mock data.")
-             return self._mock_parse(title, text)
+             logger.error("DASHSCOPE_API_KEY not set.")
+             raise ValueError("DASHSCOPE_API_KEY 未配置。请在 API 配置中设置 DASHSCOPE_API_KEY 后重试。")
 
         prompt = self._construct_prompt(text)
         
@@ -73,12 +73,21 @@ class ScriptProcessor:
                 data = json.loads(content.strip())
                 return self._create_script_from_data(title, text, data)
             else:
-                logger.error(f"LLM Call Failed: {response.code} - {response.message}")
-                return self._mock_parse(title, text)
+                error_msg = f"LLM 调用失败: {response.code} - {response.message}"
+                logger.error(error_msg)
+                raise RuntimeError(error_msg)
                 
+        except json.JSONDecodeError as e:
+            error_msg = f"LLM 返回的数据格式错误，无法解析 JSON: {e}"
+            logger.error(error_msg, exc_info=True)
+            raise RuntimeError(error_msg)
+        except ValueError:
+            # Re-raise ValueError (e.g., API key not set)
+            raise
         except Exception as e:
-            logger.error(f"Error parsing novel with LLM: {e}", exc_info=True)
-            return self._mock_parse(title, text)
+            error_msg = f"剧本解析失败: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            raise RuntimeError(error_msg)
 
     def _create_script_from_data(self, title: str, original_text: str, data: Dict[str, Any]) -> Script:
         script_id = str(uuid.uuid4())

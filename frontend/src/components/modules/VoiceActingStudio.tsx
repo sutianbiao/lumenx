@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { Mic, Play, Pause, Wand2, Users, Volume2, Music, Check, Settings2, Smile, Frown, Angry, Meh } from "lucide-react";
 import { useProjectStore } from "@/store/projectStore";
 import { api, API_URL } from "@/lib/api";
+import { getAssetUrl } from "@/lib/utils";
 
 export default function VoiceActingStudio() {
     const currentProject = useProjectStore((state) => state.currentProject);
@@ -30,7 +31,7 @@ export default function VoiceActingStudio() {
             setPlayingAudio(null);
         } else {
             if (audioRef.current) {
-                audioRef.current.src = `${API_URL}/files/${url}`;
+                audioRef.current.src = getAssetUrl(url);
                 audioRef.current.play();
                 setPlayingAudio(url);
             }
@@ -110,10 +111,7 @@ export default function VoiceActingStudio() {
                                 <div className="w-10 h-10 rounded-full bg-gray-700 overflow-hidden">
                                     {(char?.avatar_url || char?.image_url) ? (
                                         <img
-                                            src={(char?.avatar_url || char?.image_url || "").startsWith("http")
-                                                ? (char?.avatar_url || char?.image_url)
-                                                : `${API_URL}/files/${char?.avatar_url || char?.image_url}`
-                                            }
+                                            src={getAssetUrl(char?.avatar_url || char?.image_url)}
                                             alt={char.name}
                                             className="w-full h-full object-cover"
                                         />
@@ -198,10 +196,7 @@ export default function VoiceActingStudio() {
                                     <div className="w-10 h-10 rounded-full bg-gray-800 overflow-hidden border border-white/10">
                                         {(speaker?.avatar_url || speaker?.image_url) ? (
                                             <img
-                                                src={(speaker?.avatar_url || speaker?.image_url || "").startsWith("http")
-                                                    ? (speaker?.avatar_url || speaker?.image_url)
-                                                    : `${API_URL}/files/${speaker?.avatar_url || speaker?.image_url}`
-                                                }
+                                                src={getAssetUrl(speaker?.avatar_url || speaker?.image_url)}
                                                 className="w-full h-full object-cover"
                                             />
                                         ) : (

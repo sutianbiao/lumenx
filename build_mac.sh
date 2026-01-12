@@ -76,6 +76,25 @@ echo "5. 清理旧的打包文件..."
 rm -rf build dist dist_mac *.spec __pycache__
 find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
+# 准备 FFmpeg
+echo "5.5. 准备 FFmpeg..."
+mkdir -p bin
+if [ ! -f "bin/ffmpeg" ]; then
+    if command -v ffmpeg &> /dev/null; then
+        echo "   从系统路径复制 FFmpeg..."
+        # 获取 ffmpeg 真实路径（解决符号链接问题）
+        FFMPEG_PATH=$(which ffmpeg)
+        cp "$FFMPEG_PATH" bin/
+        echo "   已复制: $FFMPEG_PATH -> bin/ffmpeg"
+    else
+        echo "   错误: 未找到 FFmpeg。请安装 ffmpeg (brew install ffmpeg) 或手动下载并放置在 bin/ffmpeg"
+        exit 1
+    fi
+else
+    echo "   使用现有的 bin/ffmpeg"
+fi
+chmod +x bin/ffmpeg
+
 # 使用 PyInstaller 打包
 echo "6. 使用 PyInstaller 打包..."
 
@@ -93,6 +112,7 @@ pyinstaller --clean --noconfirm \
     $ICON_PARAM \
     --add-data "static:static" \
     --add-data "src:src" \
+    --add-binary "bin/ffmpeg:." \
     --hidden-import=src \
     --hidden-import=src.apps \
     --hidden-import=src.apps.comic_gen \

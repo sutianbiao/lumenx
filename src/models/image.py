@@ -60,19 +60,18 @@ class WanxImageModel(ImageGenModel):
         # Remove duplicates
         all_ref_paths = list(set(all_ref_paths))
         # Model selection priority: explicit model_name > config params > defaults
-
         if model_name:
             final_model_name = model_name
         elif all_ref_paths:
+            # For I2I, use i2i_model_name if configured, otherwise default to wan2.5-i2i-preview
             final_model_name = self.params.get('i2i_model_name', 'wan2.5-i2i-preview')
         else:
+            # For T2I, use model_name if configured, otherwise default to wan2.6-t2i
             final_model_name = self.params.get('model_name', 'wan2.6-t2i')
 
         if all_ref_paths:
-            model_name = self.params.get('i2i_model_name', 'wan2.5-i2i-preview')
             logger.info(f"Using I2I model: {final_model_name} with {len(all_ref_paths)} reference images")
         else:
-            model_name = self.params.get('model_name', 'wan2.2-t2i-plus')
             logger.info(f"Using T2I model: {final_model_name}")
 
         size = kwargs.pop('size', self.params.get('size', '1280*1280'))
@@ -214,15 +213,20 @@ class WanxImageModel(ImageGenModel):
                 elif path.startswith("http"):
                     # Already a URL (could be signed or public)
                     content.append({"image": path})
-                elif "/" in path and not path.startswith("output/"):
-                    # Might be an Object Key, generate signed URL
-                    uploader = OSSImageUploader()
-                    if uploader.is_configured:
-                        signed_url = uploader.sign_url_for_api(path)
-                        content.append({"image": signed_url})
-                        logger.info(f"Reference image (Object Key), signed URL: {signed_url[:80]}...")
                 else:
-                    logger.warning(f"Reference image not found: {path}")
+                    # Check if it's an OSS Object Key using the utility function
+                    from ..utils.oss_utils import is_object_key
+                    if is_object_key(path):
+                        uploader = OSSImageUploader()
+                        if uploader.is_configured:
+                            # Generate signed URL for AI API access (30 min validity)
+                            signed_url = uploader.sign_url_for_api(path)
+                            content.append({"image": signed_url})
+                            logger.info(f"Reference image (Object Key), signed URL: {signed_url[:80]}...")
+                        else:
+                            logger.warning(f"OSS not configured but Object Key provided: {path}")
+                    else:
+                        logger.warning(f"Reference image not found: {path}")
         
         payload = {
             "model": "wan2.6-image",
@@ -361,14 +365,18 @@ class WanxImageModel(ImageGenModel):
                 elif path.startswith("http"):
                     # Already a URL
                     ref_image_urls.append(path)
-                elif "/" in path and not path.startswith("output/"):
-                    # Might be an Object Key, generate signed URL
-                    if uploader.is_configured:
-                        signed_url = uploader.sign_url_for_api(path)
-                        ref_image_urls.append(signed_url)
-                        logger.info(f"Reference image (Object Key), signed URL: {signed_url[:80]}...")
                 else:
-                    raise ValueError(f"Reference image not found: {path}")
+                    # Check if it's an OSS Object Key using the utility function
+                    from ..utils.oss_utils import is_object_key
+                    if is_object_key(path):
+                        if uploader.is_configured:
+                            signed_url = uploader.sign_url_for_api(path)
+                            ref_image_urls.append(signed_url)
+                            logger.info(f"Reference image (Object Key), signed URL: {signed_url[:80]}...")
+                        else:
+                            raise ValueError(f"OSS not configured but Object Key provided: {path}")
+                    else:
+                        raise ValueError(f"Reference image not found: {path}")
             
             logger.info(f"DEBUG: ref_image_urls count: {len(ref_image_urls)}")
             

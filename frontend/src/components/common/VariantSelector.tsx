@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ImageAsset, ImageVariant } from '@/store/projectStore';
 import { Trash2, Check, ChevronLeft, ChevronRight, Layers, X, Maximize2, Star } from 'lucide-react';
 import { API_URL } from '@/lib/api';
+import { getAssetUrl } from '@/lib/utils';
 
 interface VariantSelectorProps {
     asset: ImageAsset | undefined;
@@ -52,8 +53,8 @@ export const VariantSelector: React.FC<VariantSelectorProps> = ({
     const selectedVariant = asset?.variants?.find(v => v.id === asset.selected_id);
     const apiBase = getApiBaseUrl();
     const displayUrl = selectedVariant ?
-        (selectedVariant.url.startsWith('http') ? selectedVariant.url : `${apiBase}/files/${selectedVariant.url}`) :
-        (currentImageUrl ? (currentImageUrl.startsWith('http') ? currentImageUrl : `${apiBase}/files/${currentImageUrl}`) : null);
+        getAssetUrl(selectedVariant.url) :
+        getAssetUrl(currentImageUrl);
 
     const variants = asset?.variants || [];
 
@@ -157,7 +158,7 @@ export const VariantSelector: React.FC<VariantSelectorProps> = ({
                             {variants.map((variant) => {
                                 const isSelected = variant.id === asset?.selected_id;
                                 const isFavorited = (variant as any).is_favorited || false;
-                                const url = variant.url.startsWith('http') ? variant.url : `${apiBase}/files/${variant.url}`;
+                                const url = getAssetUrl(variant.url);
 
                                 return (
                                     <div
@@ -171,6 +172,7 @@ export const VariantSelector: React.FC<VariantSelectorProps> = ({
                                         <img
                                             src={url}
                                             alt="Variant"
+                                            loading="lazy"
                                             className="w-full h-full object-cover cursor-pointer"
                                             onClick={() => onSelect(variant.id)}
                                         />

@@ -257,7 +257,6 @@ interface ProjectStore {
     setSelectedFrameId: (id: string | null) => void;
 
     // Asset Generation State
-    // Asset Generation State
     generatingTasks: { assetId: string; generationType: string; batchSize: number }[];
     addGeneratingTask: (assetId: string, generationType: string, batchSize: number) => void;
     removeGeneratingTask: (assetId: string, generationType: string) => void;
@@ -485,7 +484,7 @@ export const useProjectStore = create<ProjectStore>()(
                 projects: state.projects,
                 styles: state.styles,
                 selectedStyleId: state.selectedStyleId,
-                // generatingAssetIds: state.generatingAssetIds // Do NOT persist this, or it gets stuck on refresh
+                generatingTasks: state.generatingTasks // Now persisting this to maintain state across refreshes
             }),
         }
     )

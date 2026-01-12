@@ -32,18 +32,39 @@ def get_oss_base_path() -> str:
 def is_object_key(value: str) -> bool:
     """
     Check if a string value is an OSS Object Key (not a full URL or local path).
-    Object Keys don't start with http:// or https:// and contain path separators.
     """
     if not value or not isinstance(value, str):
         return False
     # Skip full URLs
-    if value.startswith("http://") or value.startswith("https://"):
+    if value.startswith(("http://", "https://", "blob:", "data:")):
         return False
     # Skip empty or whitespace-only
     if not value.strip():
         return False
-    # Object keys typically have path structure
-    return "/" in value or value.endswith((".png", ".jpg", ".jpeg", ".mp4", ".mp3", ".wav"))
+    
+    # Skip local paths (these start with known local directories)
+    # Be very inclusive here to avoid signing local files
+    local_prefixes = (
+        "assets/", "storyboard/", "video/", "audio/", "export/", "uploads/", "output/", "outputs/",
+        "/assets/", "/storyboard/", "/video/", "/audio/", "/export/", "/uploads/", "/output/", "/outputs/"
+    )
+    if value.startswith(local_prefixes):
+        return False
+    
+    # Get the current OSS base path and ensure it ends with a single slash
+    # Strip quotes and slashes to be robust
+    base_path = get_oss_base_path().strip("'\"/")
+    
+    # Object keys MUST start with the OSS base path (e.g., 'lumenx/')
+    # This is the ONLY valid check. Do NOT add a fallback that might match local paths.
+    return value.startswith(f"{base_path}/")
+
+
+
+
+
+
+
 
 
 def is_local_path(value: str) -> bool:
@@ -85,19 +106,26 @@ class OSSImageUploader:
         self.bucket_name = os.getenv("OSS_BUCKET_NAME")
         self.base_path = get_oss_base_path()
         
+        # Debug prints for terminal
+        print(f"DEBUG: OSS init - ID={'***' if self.access_key_id else 'None'}, Secret={'***' if self.access_key_secret else 'None'}, Endpoint={self.endpoint}, Bucket={self.bucket_name}, Base={self.base_path}")
+        
         if not all([self.access_key_id, self.access_key_secret, self.endpoint, self.bucket_name]):
             logger.warning("OSS credentials not fully configured. OSS upload will be disabled.")
+            print("DEBUG: OSS init - FAILED: missing credentials")
             self.bucket = None
         else:
             try:
                 self.auth = oss2.Auth(self.access_key_id, self.access_key_secret)
                 self.bucket = oss2.Bucket(self.auth, self.endpoint, self.bucket_name)
                 logger.info(f"OSS initialized: bucket={self.bucket_name}, base_path={self.base_path}")
+                print(f"DEBUG: OSS init - SUCCESS: bucket={self.bucket_name}")
             except Exception as e:
                 logger.error(f"Failed to initialize OSS bucket: {e}")
+                print(f"DEBUG: OSS init - ERROR: {e}")
                 self.bucket = None
         
         self._initialized = True
+
     
     @classmethod
     def reset_instance(cls):
@@ -185,7 +213,11 @@ class OSSImageUploader:
     
     def sign_url_for_display(self, object_key: str) -> str:
         """Generate signed URL for frontend display (2 hours validity)."""
-        return self.generate_signed_url(object_key, SIGN_URL_EXPIRES_DISPLAY)
+        signed_url = self.generate_signed_url(object_key, SIGN_URL_EXPIRES_DISPLAY)
+        print(f"DEBUG: sign_url_for_display('{object_key}') -> '{signed_url}'")
+        return signed_url
+
+
     
     def sign_url_for_api(self, object_key: str) -> str:
         """Generate signed URL for AI API calls (30 minutes validity)."""
@@ -247,6 +279,7 @@ def sign_oss_urls_in_data(data, uploader: OSSImageUploader = None):
             if is_object_key(value):
                 signed_url = uploader.sign_url_for_display(value)
                 return signed_url if signed_url else value
+            # print(f"DEBUG: sign_oss_urls_in_data - skipping string '{value[:50]}...'")
             return value
         elif isinstance(value, dict):
             return {k: process_value(v) for k, v in value.items()}

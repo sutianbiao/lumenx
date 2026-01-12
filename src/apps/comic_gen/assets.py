@@ -6,6 +6,7 @@ from urllib.parse import quote
 from .models import Character, Scene, Prop, GenerationStatus, ImageAsset, ImageVariant, MAX_VARIANTS_PER_ASSET
 from ...models.image import WanxImageModel
 from ...utils import get_logger
+from ...utils.oss_utils import is_object_key
 
 logger = get_logger(__name__)
 
@@ -129,9 +130,6 @@ class AssetGenerator:
                     except Exception as e:
                         logger.error(f"Failed to generate full body variant {i+1}/{batch_size}: {e}")
                         # Continue with next variant instead of stopping entirely
-                    except Exception as e:
-                        logger.error(f"Failed to generate full body variant {i+1}/{batch_size}: {e}")
-                        # Continue with next variant instead of stopping entirely
                         continue
 
                     # Try uploading to OSS if configured - store Object Key (not full URL)
@@ -151,6 +149,10 @@ class AssetGenerator:
                 logger.info(f"Full body generation complete: {successful_generations}/{batch_size} variants generated")
                 character.full_body_updated_at = time.time()
                 
+                # Raise exception if all variants failed
+                if successful_generations == 0:
+                    raise RuntimeError("生成失败，请检查 API 配置或修改描述内容后重试。")
+                
                 # Mark downstream as inconsistent if generating only full body
                 if generation_type == "full_body":
                     character.is_consistent = False
@@ -165,8 +167,19 @@ class AssetGenerator:
 
             if generation_type in ["three_view", "headshot"] and not current_full_body_url:
                 raise ValueError("Full body image is required to generate derived assets.")
-                
-            fullbody_path = os.path.join("output", current_full_body_url) if current_full_body_url else None
+            
+            # Handle reference image path: could be OSS Object Key or local path
+            if current_full_body_url:
+                if is_object_key(current_full_body_url):
+                    # OSS Object Key - pass directly, image.py will handle signing
+                    fullbody_path = current_full_body_url
+                    logger.info(f"Using OSS Object Key for reference: {current_full_body_url}")
+                else:
+                    # Local relative path - prepend output directory
+                    fullbody_path = os.path.join("output", current_full_body_url)
+                    logger.info(f"Using local path for reference: {fullbody_path}")
+            else:
+                fullbody_path = None
 
             # 2. Three View Sheet (Derived)
             if generation_type in ["all", "three_view"]:
@@ -240,6 +253,10 @@ class AssetGenerator:
 
                 logger.info(f"Three view generation complete: {successful_generations}/{batch_size} variants generated")
                 character.three_view_updated_at = time.time()
+                
+                # Raise exception if all variants failed
+                if successful_generations == 0:
+                    raise RuntimeError("生成失败，请检查 API 配置或修改描述内容后重试。")
 
             # 3. Headshot (Derived)
             if generation_type in ["all", "headshot"]:
@@ -311,6 +328,10 @@ class AssetGenerator:
 
                 logger.info(f"Headshot generation complete: {successful_generations}/{batch_size} variants generated")
                 character.headshot_updated_at = time.time()
+                
+                # Raise exception if all variants failed
+                if successful_generations == 0:
+                    raise RuntimeError("生成失败，请检查 API 配置或修改描述内容后重试。")
 
             # Update consistency status (Legacy support, but also useful for quick checks)
             if generation_type == "all":
@@ -324,7 +345,7 @@ class AssetGenerator:
         except Exception as e:
             logger.error(f"Failed to generate character {character.name}: {e}")
             character.status = GenerationStatus.FAILED
-            # Fallback logic could be here
+            raise  # Re-raise to propagate error to caller
             
         return character
 
@@ -385,8 +406,8 @@ class AssetGenerator:
             scene.status = GenerationStatus.COMPLETED
         except Exception as e:
             logger.error(f"Failed to generate scene {scene.name}: {e}")
-            # scene.image_url = f"https://placehold.co/1024x1024/1a1a1a/FFF?text={quote(scene.name)}"
-            scene.status = GenerationStatus.COMPLETED
+            scene.status = GenerationStatus.FAILED
+            raise  # Re-raise to propagate error to caller
             
         return scene
 
@@ -447,7 +468,7 @@ class AssetGenerator:
             prop.status = GenerationStatus.COMPLETED
         except Exception as e:
             logger.error(f"Failed to generate prop {prop.name}: {e}")
-            # prop.image_url = f"https://placehold.co/1024x1024/1a1a1a/FFF?text={quote(prop.name)}"
-            prop.status = GenerationStatus.COMPLETED
+            prop.status = GenerationStatus.FAILED
+            raise  # Re-raise to propagate error to caller
             
         return prop

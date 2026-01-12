@@ -582,8 +582,9 @@ function StoryboardInspector() {
                                                         }`}
                                                 >
                                                     <div className="w-4 h-4 rounded bg-gray-700 overflow-hidden flex-shrink-0">
-                                                        {prop.image_url && <img src={prop.image_url} className="w-full h-full object-cover" />}
+                                                        {prop.image_url && <img src={getAssetUrl(prop.image_url)} className="w-full h-full object-cover" />}
                                                     </div>
+
                                                     <span className="truncate">{prop.name}</span>
                                                 </button>
                                             );

@@ -12,6 +12,63 @@ class VideoGenerator:
         self.model = WanxModel(self.config.get('model', {}))
         self.output_dir = self.config.get('output_dir', 'output/video')
 
+    def generate_i2v(self, image_url: str, prompt: str, duration: int = 5, audio_url: str = None) -> Dict[str, Any]:
+        """
+        Generate Image-to-Video for motion reference.
+        
+        Args:
+            image_url: Source image URL (can be local path or remote URL)
+            prompt: Motion description prompt
+            duration: Video duration in seconds (default 5)
+            audio_url: Optional audio URL to drive lip-sync
+            
+        Returns:
+            Dict with video_url key containing the generated video URL
+        """
+        import uuid
+        
+        logger.info(f"Generating I2V motion reference: prompt={prompt[:50]}..., duration={duration}")
+        
+        # Handle local file paths
+        img_path = None
+        if image_url and not image_url.startswith("http"):
+            potential_path = os.path.join("output", image_url)
+            if os.path.exists(potential_path):
+                img_path = os.path.abspath(potential_path)
+            elif os.path.exists(image_url):
+                img_path = image_url
+        
+        try:
+            output_filename = f"motion_ref_{uuid.uuid4().hex[:8]}.mp4"
+            output_path = os.path.join(self.output_dir, output_filename)
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            
+            video_path, _ = self.model.generate(
+                prompt=prompt,
+                output_path=output_path,
+                img_path=img_path,
+                img_url=image_url if not img_path else None
+            )
+            
+            # Upload to OSS if configured
+            video_url = os.path.relpath(output_path, "output")
+            try:
+                from ...utils.oss_utils import OSSImageUploader
+                uploader = OSSImageUploader()
+                if uploader.is_configured:
+                    object_key = uploader.upload_file(output_path, sub_path="motion_ref")
+                    if object_key:
+                        logger.info(f"Uploaded motion ref video to OSS: {object_key}")
+                        video_url = object_key
+            except Exception as e:
+                logger.error(f"Failed to upload motion ref to OSS: {e}")
+            
+            return {"video_url": video_url}
+            
+        except Exception as e:
+            logger.error(f"Failed to generate I2V motion reference: {e}")
+            raise
+
     def generate_clip(self, frame: StoryboardFrame) -> StoryboardFrame:
         """Generates a video clip from a storyboard frame."""
         if not frame.image_url:

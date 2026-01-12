@@ -10,7 +10,7 @@ import {
 } from "lucide-react";
 import { useProjectStore } from "@/store/projectStore";
 import { api, API_URL, crudApi } from "@/lib/api";
-import { getAssetUrl } from "@/lib/utils";
+import { getAssetUrl, getAssetUrlWithTimestamp } from "@/lib/utils";
 
 import StoryboardFrameEditor from "./StoryboardFrameEditor";
 
@@ -310,7 +310,7 @@ export default function StoryboardComposer() {
                                         {frame.rendered_image_url || frame.image_url ? (
                                             <ImageWithRetry
                                                 key={frame.id + (frame.updated_at || 0)} // Force remount on refresh
-                                                src={getAssetUrl(frame.rendered_image_url || frame.image_url) + `?t=${frame.updated_at || 0}`}
+                                                src={getAssetUrlWithTimestamp(frame.rendered_image_url || frame.image_url, frame.updated_at)}
                                                 alt={`Frame ${index + 1}`}
                                                 className="w-full h-full object-cover cursor-zoom-in"
                                                 onClick={(e: React.MouseEvent) => handleImageClick(frame.id, e)}

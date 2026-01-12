@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Play, Check, ChevronRight, Loader2, Film, AlertTriangle, Layout, Clock, FileText } from "lucide-react";
 import { useProjectStore } from "@/store/projectStore";
 import { api, API_URL } from "@/lib/api";
+import { getAssetUrl } from "@/lib/utils";
 
 export default function VideoAssembly() {
     const currentProject = useProjectStore((state) => state.currentProject);
@@ -12,6 +13,7 @@ export default function VideoAssembly() {
 
     const [selectedFrameId, setSelectedFrameId] = useState<string | null>(null);
     const [isMerging, setIsMerging] = useState(false);
+    const [mergeError, setMergeError] = useState<string | null>(null);
 
     // Group videos by frame
     const videosByFrame = useMemo(() => {
@@ -42,15 +44,25 @@ export default function VideoAssembly() {
     const handleMerge = async () => {
         if (!currentProject) return;
         setIsMerging(true);
+        setMergeError(null);  // Clear previous errors
+
         try {
             const updatedProject = await api.mergeVideos(currentProject.id);
             updateProject(currentProject.id, updatedProject);
-            // alert("Videos merged successfully!"); // Removed alert to just show the video below
+            // Success - error will be null, merged video will show below
         } catch (error: any) {
             console.error("Failed to merge videos:", error);
-            // Show actual error message from backend if available
-            const msg = error.response?.data?.message || error.message || "Unknown error";
-            alert(`Failed to merge videos: ${msg}`);
+
+            // Extract detailed error message from backend
+            const errorDetail = error.response?.data?.detail ||
+                error.response?.data?.message ||
+                error.message ||
+                "Unknown error occurred during video merge";
+
+            setMergeError(errorDetail);
+
+            // Also show alert for immediate feedback
+            alert(`Failed to merge videos:\n\n${errorDetail}`);
         } finally {
             setIsMerging(false);
         }
@@ -102,7 +114,7 @@ export default function VideoAssembly() {
                                     <div className="w-48 aspect-video relative flex-shrink-0 border-r border-white/10 bg-black">
                                         {selectedVideo ? (
                                             <video
-                                                src={`${API_URL}/files/${selectedVideo.video_url}`}
+                                                src={getAssetUrl(selectedVideo.video_url)}
                                                 className="w-full h-full object-cover"
                                                 muted
                                                 onMouseOver={(e) => e.currentTarget.play()}
@@ -114,7 +126,7 @@ export default function VideoAssembly() {
                                         ) : (
                                             <div className="w-full h-full relative">
                                                 <img
-                                                    src={frame.image_url?.startsWith("http") ? frame.image_url : `${API_URL}/files/${frame.image_url}`}
+                                                    src={getAssetUrl(frame.image_url)}
                                                     className="w-full h-full object-cover opacity-50 grayscale"
                                                 />
                                                 <div className="absolute inset-0 flex items-center justify-center">
@@ -184,6 +196,43 @@ export default function VideoAssembly() {
                             Merge & Proceed
                         </button>
                     </div>
+
+                    {/* Error Display */}
+                    {mergeError && (
+                        <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            className="px-8 pb-4"
+                        >
+                            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4">
+                                <div className="flex items-start gap-3">
+                                    <AlertTriangle className="text-red-500 flex-shrink-0 mt-0.5" size={20} />
+                                    <div className="flex-1">
+                                        <h4 className="text-sm font-bold text-red-400 mb-1">Merge Failed</h4>
+                                        <p className="text-xs text-red-300/90 whitespace-pre-wrap leading-relaxed font-mono">
+                                            {mergeError}
+                                        </p>
+                                        {mergeError.toLowerCase().includes("ffmpeg") && (
+                                            <a
+                                                href="https://ffmpeg.org/download.html"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-xs text-blue-400 hover:text-blue-300 underline mt-2 inline-block"
+                                            >
+                                                Download FFmpeg →
+                                            </a>
+                                        )}
+                                        <button
+                                            onClick={() => setMergeError(null)}
+                                            className="mt-3 text-xs text-gray-400 hover:text-white underline"
+                                        >
+                                            Dismiss
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </motion.div>
+                    )}
                 </div>
 
                 {/* Right Sidebar - Variants */}
@@ -191,7 +240,7 @@ export default function VideoAssembly() {
                     <div className="h-14 border-b border-white/10 flex items-center justify-between px-4 bg-black/20">
                         <h3 className="font-bold text-sm">Variants</h3>
                         {selectedFrameId && (
-                            <span className="text-xs text-gray-500">Frame #{currentProject?.frames?.findIndex((f: any) => f.id === selectedFrameId) + 1}</span>
+                            <span className="text-xs text-gray-500">Frame #{(currentProject?.frames?.findIndex((f: any) => f.id === selectedFrameId) ?? -1) + 1}</span>
                         )}
                     </div>
 
@@ -209,7 +258,7 @@ export default function VideoAssembly() {
                                             >
                                                 <div className="aspect-video relative bg-black">
                                                     <video
-                                                        src={`${API_URL}/files/${video.video_url}`}
+                                                        src={getAssetUrl(video.video_url)}
                                                         className="w-full h-full object-contain"
                                                         controls
                                                     />
@@ -275,7 +324,7 @@ export default function VideoAssembly() {
                             {/* Video Player */}
                             <div className="w-1/3 aspect-video bg-black rounded-xl overflow-hidden border border-white/10 shadow-lg relative group">
                                 <video
-                                    src={`${API_URL}/files/${currentProject.merged_video_url}`}
+                                    src={getAssetUrl(currentProject.merged_video_url)}
                                     className="w-full h-full object-contain"
                                     controls
                                     autoPlay
@@ -295,7 +344,7 @@ export default function VideoAssembly() {
 
                                 <div className="flex gap-4">
                                     <a
-                                        href={`${API_URL}/files/${currentProject.merged_video_url}`}
+                                        href={getAssetUrl(currentProject.merged_video_url)}
                                         download={`merged_${currentProject.id}.mp4`}
                                         className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-lg font-bold flex items-center gap-2 transition-colors"
                                     >
