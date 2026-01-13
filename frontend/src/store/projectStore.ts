@@ -153,7 +153,7 @@ export const I2I_MODELS = [
 ];
 
 export const I2V_MODELS = [
-    { id: 'wan2.6-i2v', name: 'Wan 2.6 I2V', description: 'Latest I2V model (HTTP)' },
+    { id: 'wan2.6-i2v', name: 'Wan 2.6 I2V / R2V', description: 'Latest model, supports R2V' },
     { id: 'wan2.5-i2v-preview', name: 'Wan 2.5 I2V Preview', description: 'Default I2V' },
     { id: 'wan2.2-i2v-plus', name: 'Wan 2.2 I2V Plus', description: 'Higher quality' },
     { id: 'wan2.2-i2v-flash', name: 'Wan 2.2 I2V Flash', description: 'Faster generation' },

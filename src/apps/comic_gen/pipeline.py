@@ -15,6 +15,7 @@ from .video import VideoGenerator
 from .audio import AudioGenerator
 from .export import ExportManager
 from ...utils import get_logger
+from ...utils.oss_utils import is_object_key
 from ...utils.system_check import get_ffmpeg_path, get_ffmpeg_install_instructions
 
 logger = get_logger(__name__)
@@ -134,8 +135,9 @@ class ComicGenPipeline:
         if not script:
             raise ValueError("Script not found")
         
-        # Get effective model name from project settings if not overridden
-        effective_model_name = model_name or script.model_settings.t2i_model
+        # Get effective model names from project settings if not overridden
+        t2i_model = model_name or script.model_settings.t2i_model
+        i2i_model = script.model_settings.i2i_model
         
         # Get effective size based on asset type
         from .assets import ASPECT_RATIO_TO_SIZE
@@ -217,13 +219,14 @@ class ComicGenPipeline:
                     positive_prompt=effective_positive_prompt, # Used as style suffix if prompt is auto-generated
                     negative_prompt=effective_negative_prompt,
                     batch_size=batch_size,
-                    model_name=effective_model_name,
+                    model_name=t2i_model,
+                    i2i_model_name=i2i_model,
                     size=effective_size
                 )
             elif asset_type == "scene":
-                self.asset_generator.generate_scene(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=effective_model_name, size=effective_size)
+                self.asset_generator.generate_scene(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=t2i_model, size=effective_size)
             elif asset_type == "prop":
-                self.asset_generator.generate_prop(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=effective_model_name, size=effective_size)
+                self.asset_generator.generate_prop(target_asset, effective_positive_prompt, effective_negative_prompt, batch_size=batch_size, model_name=t2i_model, size=effective_size)
                 
             target_asset.status = GenerationStatus.COMPLETED
         except Exception as e:
@@ -920,15 +923,21 @@ class ComicGenPipeline:
             
             # Resolve single path
             if ref_image_url:
-                potential_path = os.path.join("output", ref_image_url)
-                if os.path.exists(potential_path):
-                    ref_image_path = os.path.abspath(potential_path)
+                if is_object_key(ref_image_url):
+                    ref_image_path = ref_image_url
+                else:
+                    potential_path = os.path.join("output", ref_image_url)
+                    if os.path.exists(potential_path):
+                        ref_image_path = os.path.abspath(potential_path)
             
             # Resolve multiple paths
             for url in ref_image_urls:
-                potential_path = os.path.join("output", url)
-                if os.path.exists(potential_path):
-                    ref_image_paths.append(os.path.abspath(potential_path))
+                if is_object_key(url):
+                    ref_image_paths.append(url)
+                else:
+                    potential_path = os.path.join("output", url)
+                    if os.path.exists(potential_path):
+                        ref_image_paths.append(os.path.abspath(potential_path))
             
             # Use the prompt as-is from frontend (already contains style)
             final_prompt = prompt
@@ -1008,10 +1017,10 @@ class ComicGenPipeline:
         snapshot_url = image_url
         try:
             # Resolve source path
-            if not image_url.startswith("http"):
+            if image_url and not image_url.startswith("http"):
                 # Assume relative to output dir
                 src_path = os.path.join("output", image_url)
-                if os.path.exists(src_path):
+                if os.path.exists(src_path) and os.path.isfile(src_path):
                     # Create snapshot dir
                     snapshot_dir = os.path.join("output", "video_inputs")
                     os.makedirs(snapshot_dir, exist_ok=True)
@@ -1431,11 +1440,13 @@ class ComicGenPipeline:
             self._save_data()
             
             # Download image to temp file
-            img_path = self._download_temp_image(task.image_url)
+            img_path = None
+            if task.image_url:
+                img_path = self._download_temp_image(task.image_url)
             
             # Generate video
             output_filename = f"video_{task_id}.mp4"
-            output_path = os.path.join("output", "outputs", "videos", output_filename)
+            output_path = os.path.join("output", "video", output_filename)
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             
             # Handle Audio Logic

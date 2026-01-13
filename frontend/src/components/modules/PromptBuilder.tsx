@@ -1,18 +1,22 @@
 import React, { useState, useRef, useEffect, useImperativeHandle, forwardRef, useLayoutEffect } from "react";
-import { X, ChevronDown, Video } from "lucide-react";
+import { X, ChevronDown, Video, User } from "lucide-react";
 
 export type PromptSegment =
     | { type: "text"; value: string; id: string }
-    | { type: "camera"; value: string; label: string; id: string };
+    | { type: "camera"; value: string; label: string; id: string }
+    | { type: "character"; value: string; label: string; thumbnail?: string; id: string };  // value is "character1"/"character2"/"character3", label is display name
 
 interface PromptBuilderProps {
     segments: PromptSegment[];
     onChange: (segments: PromptSegment[]) => void;
     onSubmit?: () => void;
+    placeholder?: string;
 }
 
 export interface PromptBuilderRef {
     insertCamera: () => void;
+    insertText: (text: string) => void;
+    insertCharacter: (characterIndex: number, name: string, thumbnail?: string) => void;
 }
 
 const CAMERA_GROUPS = [
@@ -49,251 +53,183 @@ const findCameraOption = (value: string) => {
     return null;
 };
 
-const PromptBuilder = forwardRef<PromptBuilderRef, PromptBuilderProps>(({ segments, onChange, onSubmit }, ref) => {
-    const [activeSegmentId, setActiveSegmentId] = useState<string | null>(null);
-    const [cursorPosition, setCursorPosition] = useState<number>(0);
-    const containerRef = useRef<HTMLDivElement>(null);
+const PromptBuilder = forwardRef<PromptBuilderRef, PromptBuilderProps>(({ segments, onChange, onSubmit, placeholder }, ref) => {
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    // Local state to manage the textarea value directly, avoiding cursor jumps from prop sync
+    const [value, setValue] = useState("");
     const isComposing = useRef(false);
 
-    // Initialize with one text segment if empty
+    // Convert segments to Text format
+    // Text: value
+    // Camera: (camera: value)
+    // Character: [value: label]  (e.g. [character1:雷震])
+    const segmentsToText = (segs: PromptSegment[]) => {
+        return segs.map(seg => {
+            if (seg.type === "text") {
+                return seg.value;
+            } else if (seg.type === "camera") {
+                return `(camera: ${seg.value})`;
+            } else if (seg.type === "character") {
+                return `[${seg.value}:${seg.label}]`;
+            }
+            return "";
+        }).join("");
+    };
+
+    // Parse Text back to segments
+    const parseTextToSegments = (text: string): PromptSegment[] => {
+        const newSegments: PromptSegment[] = [];
+        // Regex to match [characterN:Label] or (camera: Value)
+        // Group 1: character value (character\d+)
+        // Group 2: character label
+        // Group 3: camera value
+        const regex = /\[(character\d+):([^\]]+)\]|\(camera:\s*([^)]+)\)/g;
+
+        let lastIndex = 0;
+        let match;
+
+        while ((match = regex.exec(text)) !== null) {
+            // Add preceding text
+            if (match.index > lastIndex) {
+                newSegments.push({
+                    type: "text",
+                    value: text.slice(lastIndex, match.index),
+                    id: Math.random().toString(36).substr(2, 9)
+                });
+            }
+
+            if (match[1]) {
+                // Character match
+                newSegments.push({
+                    type: "character",
+                    value: match[1],
+                    label: match[2],
+                    id: Math.random().toString(36).substr(2, 9)
+                });
+            } else if (match[3]) {
+                // Camera match
+                newSegments.push({
+                    type: "camera",
+                    value: match[3].trim(),
+                    label: match[3].trim(), // Use value as label for simplicity in text mode
+                    id: Math.random().toString(36).substr(2, 9)
+                });
+            }
+
+            lastIndex = regex.lastIndex;
+        }
+
+        // Add remaining text
+        if (lastIndex < text.length) {
+            newSegments.push({
+                type: "text",
+                value: text.slice(lastIndex),
+                id: Math.random().toString(36).substr(2, 9)
+            });
+        }
+
+        return newSegments.length > 0 ? newSegments : [{ type: "text", value: "", id: "init" }];
+    };
+
+    // Sync props to local state
+    // Only sync if the semantic content has changed externally
     useEffect(() => {
-        if (segments.length === 0) {
-            onChange([{ type: "text", value: "", id: Math.random().toString(36).substr(2, 9) }]);
+        const textFromProps = segmentsToText(segments);
+        // We compare the parsed version of current local value with props to see if they are semantically different
+        // This prevents overwriting local state (and moving cursor) when the round-trip conversion is stable
+        const currentParsed = parseTextToSegments(value);
+        const currentReconstructed = segmentsToText(currentParsed);
+
+        if (textFromProps !== currentReconstructed && !isComposing.current) {
+            setValue(textFromProps);
         }
-    }, []);
-
-    // Restore cursor position after render
-    useLayoutEffect(() => {
-        if (activeSegmentId && !isComposing.current) {
-            const el = document.getElementById(`segment-${activeSegmentId}`);
-            if (el && el.childNodes.length > 0) {
-                const range = document.createRange();
-                const sel = window.getSelection();
-                try {
-                    // Ensure cursor position is within bounds
-                    const textNode = el.childNodes[0];
-                    const safePosition = Math.min(cursorPosition, textNode.textContent?.length || 0);
-
-                    range.setStart(textNode, safePosition);
-                    range.collapse(true);
-                    sel?.removeAllRanges();
-                    sel?.addRange(range);
-                } catch (e) {
-                    // Fallback if something goes wrong
-                    console.warn("Failed to set cursor position", e);
-                }
-            } else if (el) {
-                // Empty element
-                el.focus();
-            }
+        // If value is empty and props are not, sync (initial load)
+        if (!value && textFromProps) {
+            setValue(textFromProps);
         }
-    }, [segments, activeSegmentId, cursorPosition]);
+    }, [segments]);
 
-    useImperativeHandle(ref, () => ({
-        insertCamera: () => {
-            const currentSegmentIndex = segments.findIndex(s => s.id === activeSegmentId);
-            const defaultCamera = { value: "camera pans left", label: "水平左移 (Pan Left)" };
+    const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const newValue = e.target.value;
+        setValue(newValue);
 
-            if (currentSegmentIndex === -1) {
-                // If no active segment, append to end
-                const newId = Math.random().toString(36).substr(2, 9);
-                const textId = Math.random().toString(36).substr(2, 9);
-                onChange([
-                    ...segments,
-                    { type: "camera", value: defaultCamera.value, label: defaultCamera.label, id: newId },
-                    { type: "text", value: "", id: textId }
-                ]);
-                setTimeout(() => setActiveSegmentId(textId), 0);
-                return;
-            }
-
-            const currentSegment = segments[currentSegmentIndex];
-            if (currentSegment.type === "text") {
-                // Split text segment
-                const preText = currentSegment.value.substring(0, cursorPosition);
-                const postText = currentSegment.value.substring(cursorPosition);
-
-                const cameraId = Math.random().toString(36).substr(2, 9);
-                const postTextId = Math.random().toString(36).substr(2, 9);
-
-                const newSegments = [...segments];
-                newSegments.splice(currentSegmentIndex, 1,
-                    { ...currentSegment, value: preText },
-                    { type: "camera", value: defaultCamera.value, label: defaultCamera.label, id: cameraId },
-                    { type: "text", value: postText, id: postTextId }
-                );
-
-                onChange(newSegments);
-                setTimeout(() => setActiveSegmentId(postTextId), 0);
-            }
+        if (!isComposing.current) {
+            const newSegments = parseTextToSegments(newValue);
+            onChange(newSegments);
         }
-    }));
-
-    const handleTextChange = (id: string, newValue: string) => {
-        onChange(segments.map(s => s.id === id ? { ...s, value: newValue } : s));
     };
 
-    const handleCameraChange = (id: string, newValue: string, newLabel: string) => {
-        onChange(segments.map(s => s.id === id ? { ...s, value: newValue, label: newLabel } : s));
+    const handleCompositionStart = () => {
+        isComposing.current = true;
     };
 
-    const removeSegment = (index: number) => {
-        const newSegments = [...segments];
-
-        // If removing a camera segment (which is what this is mostly for)
-        if (newSegments[index].type === "camera") {
-            // Merge surrounding text segments
-            const prev = newSegments[index - 1];
-            const next = newSegments[index + 1];
-
-            if (prev && prev.type === "text" && next && next.type === "text") {
-                // Merge next into prev
-                newSegments.splice(index - 1, 3, { ...prev, value: prev.value + next.value });
-                // Focus the merged segment
-                setTimeout(() => {
-                    const el = document.getElementById(`segment-${prev.id}`);
-                    if (el) {
-                        el.focus();
-                        // Place cursor at the join point
-                        const range = document.createRange();
-                        const sel = window.getSelection();
-                        if (el.childNodes[0]) {
-                            range.setStart(el.childNodes[0], prev.value.length);
-                            range.collapse(true);
-                            sel?.removeAllRanges();
-                            sel?.addRange(range);
-                        }
-                    }
-                }, 0);
-            } else {
-                newSegments.splice(index, 1);
-            }
-        } else {
-            // Removing text segment (should rarely happen directly, usually via merge)
-            newSegments.splice(index, 1);
-        }
-
+    const handleCompositionEnd = () => {
+        isComposing.current = false;
+        // Trigger update after composition
+        const newSegments = parseTextToSegments(value);
         onChange(newSegments);
     };
 
+    const insertTextAtCursor = (textToInsert: string) => {
+        if (!textareaRef.current) return;
+
+        const input = textareaRef.current;
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        const text = input.value;
+
+        const before = text.substring(0, start);
+        const after = text.substring(end, text.length);
+
+        const newValue = before + textToInsert + after;
+
+        setValue(newValue);
+
+        // Update parent
+        const newSegments = parseTextToSegments(newValue);
+        onChange(newSegments);
+
+        // Restore cursor position
+        setTimeout(() => {
+            if (textareaRef.current) {
+                textareaRef.current.focus();
+                const newCursorPos = start + textToInsert.length;
+                textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
+            }
+        }, 0);
+    };
+
+    useImperativeHandle(ref, () => ({
+        insertCamera: () => {
+            // Default camera
+            insertTextAtCursor("(camera: camera pans left)");
+        },
+        insertText: (text: string) => {
+            insertTextAtCursor(text);
+        },
+        insertCharacter: (characterIndex: number, name: string, thumbnail?: string) => {
+            const id = `character${characterIndex + 1}`;
+            insertTextAtCursor(`[${id}:${name}]`);
+        }
+    }));
+
     return (
-        <div
-            ref={containerRef}
-            className="glass-input w-full min-h-[8rem] p-4 text-base leading-relaxed cursor-text whitespace-pre-wrap"
-            onClick={(e) => {
-                if (e.target === containerRef.current) {
-                    // Focus the last text segment
-                    const lastSegment = segments[segments.length - 1];
-                    if (lastSegment && lastSegment.type === "text") {
-                        setActiveSegmentId(lastSegment.id);
-                        const el = document.getElementById(`segment-${lastSegment.id}`);
-                        el?.focus();
-                        // Move cursor to end
-                        const range = document.createRange();
-                        const sel = window.getSelection();
-                        if (el && el.childNodes[0]) {
-                            range.setStart(el.childNodes[0], el.textContent?.length || 0);
-                            range.collapse(true);
-                            sel?.removeAllRanges();
-                            sel?.addRange(range);
-                        }
+        <div className="relative group w-full h-full">
+            <textarea
+                ref={textareaRef}
+                className="glass-input w-full min-h-[8rem] h-full p-4 text-base leading-relaxed outline-none focus:ring-1 focus:ring-primary/30 transition-all resize-none bg-transparent text-white placeholder-gray-500 font-mono"
+                value={value}
+                onChange={handleChange}
+                onCompositionStart={handleCompositionStart}
+                onCompositionEnd={handleCompositionEnd}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+                        e.preventDefault();
+                        onSubmit?.();
                     }
-                }
-            }}
-        >
-            {segments.map((segment, index) => {
-                if (segment.type === "text") {
-                    return (
-                        <span
-                            key={segment.id}
-                            className="inline outline-none min-w-[4px]"
-                            contentEditable
-                            id={`segment-${segment.id}`}
-                            suppressContentEditableWarning
-                            onCompositionStart={() => {
-                                isComposing.current = true;
-                            }}
-                            onCompositionEnd={(e) => {
-                                isComposing.current = false;
-                                const selection = window.getSelection();
-                                if (selection) {
-                                    setCursorPosition(selection.focusOffset);
-                                }
-                                handleTextChange(segment.id, e.currentTarget.textContent || "");
-                            }}
-                            onInput={(e) => {
-                                if (!isComposing.current) {
-                                    const selection = window.getSelection();
-                                    if (selection) {
-                                        setCursorPosition(selection.focusOffset);
-                                    }
-                                    handleTextChange(segment.id, e.currentTarget.textContent || "");
-                                }
-                            }}
-                            onFocus={() => setActiveSegmentId(segment.id)}
-                            onBlur={() => {
-                                // Don't clear active segment immediately
-                            }}
-                            onKeyUp={(e) => {
-                                const selection = window.getSelection();
-                                if (selection) {
-                                    setCursorPosition(selection.focusOffset);
-                                }
-                            }}
-                            onKeyDown={(e) => {
-                                if (e.key === "Backspace" && cursorPosition === 0 && index > 0) {
-                                    // Backspace at start of text segment -> delete previous camera segment
-                                    e.preventDefault();
-                                    removeSegment(index - 1);
-                                }
-                            }}
-                        >
-                            {segment.value}
-                        </span>
-                    );
-                } else {
-                    return (
-                        <span key={segment.id} className="relative group inline-flex align-middle mx-1 select-none">
-                            <span className="flex items-center gap-1 bg-primary/20 border border-primary/50 text-primary px-2 py-0.5 rounded text-sm cursor-pointer hover:bg-primary/30 transition-colors">
-                                <Video size={12} />
-                                <span>{segment.label}</span>
-                                <ChevronDown size={12} />
-                            </span>
-                            <select
-                                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                                value={segment.value}
-                                onChange={(e) => {
-                                    const selected = findCameraOption(e.target.value);
-                                    if (selected) {
-                                        // Remove icon from label for display
-                                        const labelWithoutIcon = selected.label.substring(selected.label.indexOf(" ") + 1);
-                                        handleCameraChange(segment.id, selected.value, labelWithoutIcon);
-                                    }
-                                }}
-                            >
-                                {CAMERA_GROUPS.map(group => (
-                                    <optgroup key={group.label} label={group.label}>
-                                        {group.options.map(opt => (
-                                            <option key={opt.value} value={opt.value}>
-                                                {opt.label}
-                                            </option>
-                                        ))}
-                                    </optgroup>
-                                ))}
-                            </select>
-                            <button
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    removeSegment(index);
-                                }}
-                                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity transform scale-75 z-10"
-                            >
-                                <X size={10} />
-                            </button>
-                        </span>
-                    );
-                }
-            })}
+                }}
+                placeholder={placeholder || "输入提示词... \n插入角色格式: [character1:名称]\n插入运镜格式: (camera: 运镜指令)"}
+            />
         </div>
     );
 });

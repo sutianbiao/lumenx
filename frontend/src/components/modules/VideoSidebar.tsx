@@ -133,63 +133,42 @@ export default function VideoSidebar({ tasks, onRemix, params, setParams }: Vide
                                     Basic Settings
                                 </h3>
 
-                                {/* Model Selection */}
-                                <div>
-                                    <label className="block text-xs text-gray-400 mb-2">Model (模型)</label>
-                                    <div className="space-y-2">
-                                        {I2V_MODELS.map((model) => (
-                                            <button
-                                                key={model.id}
-                                                onClick={() => updateParam("model", model.id)}
-                                                className={`w-full flex items-center justify-between p-2.5 rounded-lg border transition-all text-left ${params.model === model.id
-                                                    ? 'border-primary/50 bg-primary/10'
-                                                    : 'border-white/10 hover:border-white/20 bg-white/5'
-                                                    }`}
-                                            >
-                                                <div>
-                                                    <span className="text-xs font-medium text-white">{model.name}</span>
-                                                    <p className="text-[10px] text-gray-500">{model.description}</p>
-                                                </div>
-                                                {params.model === model.id && (
-                                                    <div className="w-2 h-2 bg-primary rounded-full" />
-                                                )}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                {/* Generation Mode (I2V / R2V) */}
+                                {/* Model Selection - R2V mode: only Wan 2.6 is selectable */}
                                 <div>
                                     <label className="block text-xs text-gray-400 mb-2">
-                                        Generation Mode (生成模式)
+                                        Model (模型)
+                                        {params.generationMode === "r2v" && (
+                                            <span className="text-purple-400 ml-2">(R2V仅支持 Wan 2.6)</span>
+                                        )}
                                     </label>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <button
-                                            onClick={() => updateParam("generationMode", "i2v")}
-                                            className={`py-2 text-xs rounded-lg border transition-all flex flex-col items-center gap-1 ${params.generationMode === "i2v"
-                                                ? "bg-primary/20 border-primary text-primary"
-                                                : "bg-white/5 border-transparent text-gray-400 hover:bg-white/10"
-                                                }`}
-                                        >
-                                            <span className="font-medium">I2V</span>
-                                            <span className="text-[10px] text-gray-500">图生视频</span>
-                                        </button>
-                                        <button
-                                            onClick={() => updateParam("generationMode", "r2v")}
-                                            className={`py-2 text-xs rounded-lg border transition-all flex flex-col items-center gap-1 ${params.generationMode === "r2v"
-                                                ? "bg-purple-500/20 border-purple-500 text-purple-400"
-                                                : "bg-white/5 border-transparent text-gray-400 hover:bg-white/10"
-                                                }`}
-                                        >
-                                            <span className="font-medium">R2V</span>
-                                            <span className="text-[10px] text-gray-500">参考视频生视频</span>
-                                        </button>
+                                    <div className="space-y-2">
+                                        {I2V_MODELS.map((model) => {
+                                            const isR2VMode = params.generationMode === "r2v";
+                                            const isWan26 = model.id === "wan2.6-i2v";
+                                            const isDisabled = isR2VMode && !isWan26;
+                                            const isSelected = isR2VMode ? isWan26 : params.model === model.id;
+
+                                            return (
+                                                <button
+                                                    key={model.id}
+                                                    onClick={() => !isDisabled && updateParam("model", model.id)}
+                                                    disabled={isDisabled}
+                                                    className={`w-full flex items-center justify-between p-2.5 rounded-lg border transition-all text-left ${isSelected
+                                                        ? 'border-primary/50 bg-primary/10'
+                                                        : 'border-white/10 hover:border-white/20 bg-white/5'
+                                                        } ${isDisabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+                                                >
+                                                    <div>
+                                                        <span className="text-xs font-medium text-white">{model.name}</span>
+                                                        <p className="text-[10px] text-gray-500">{model.description}</p>
+                                                    </div>
+                                                    {isSelected && (
+                                                        <div className="w-2 h-2 bg-primary rounded-full" />
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
                                     </div>
-                                    <p className="text-[10px] text-gray-600 mt-1.5">
-                                        {params.generationMode === "r2v"
-                                            ? "R2V模式需要选择角色/场景的参考视频"
-                                            : "I2V模式基于分镜图片生成视频"}
-                                    </p>
                                 </div>
 
                                 {/* Duration */}

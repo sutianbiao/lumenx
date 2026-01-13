@@ -111,7 +111,8 @@ export default function VideoGenerator() {
                     onTaskCreated={handleTaskCreated}
                     remixData={remixData}
                     onRemixClear={() => setRemixData(null)}
-                    params={params} // Pass params down
+                    params={params}
+                    onParamsChange={(newParams) => setParams(p => ({ ...p, ...newParams }))}
                 />
             </div>
 

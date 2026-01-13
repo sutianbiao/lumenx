@@ -307,6 +307,13 @@ export const api = {
         });
         return res.data;
     },
+    polishR2VPrompt: async (draftPrompt: string, slots: { description: string }[]) => {
+        const res = await axios.post(`${API_URL}/video/polish_r2v_prompt`, {
+            draft_prompt: draftPrompt,
+            slots: slots
+        });
+        return res.data;
+    },
     updateAssetDescription: async (scriptId: string, assetId: string, assetType: string, description: string) => {
         const res = await axios.post(`${API_URL}/projects/${scriptId}/assets/update_description`, {
             asset_id: assetId,

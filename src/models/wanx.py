@@ -129,6 +129,47 @@ class WanxModel(VideoGenModel):
                 if not ref_video_urls:
                     raise ValueError("ref_video_urls is required for wan2.6-r2v")
                 
+                # Process ref_video_urls: Upload local files or sign Object Keys
+                processed_ref_urls = []
+                for ref_url in ref_video_urls:
+                    final_url = ref_url
+                    
+                    # Check if it's a local file
+                    local_path = None
+                    if not ref_url.startswith("http"):
+                        # Check relative to output dir
+                        potential_path = os.path.join("output", ref_url)
+                        if os.path.exists(potential_path):
+                            local_path = potential_path
+                        # Check absolute path or relative to CWD
+                        elif os.path.exists(ref_url):
+                            local_path = ref_url
+                    
+                    if local_path:
+                        # Local file - upload to OSS
+                        if uploader.is_configured:
+                            logger.info(f"Uploading reference video to OSS: {local_path}")
+                            object_key = uploader.upload_file(local_path, sub_path="temp/r2v_input")
+                            if object_key:
+                                final_url = uploader.sign_url_for_api(object_key)
+                                logger.info(f"Reference video uploaded, signed URL: {final_url[:80]}...")
+                            else:
+                                raise RuntimeError(f"Failed to upload reference video: {local_path}")
+                        else:
+                            raise RuntimeError("OSS not configured, cannot upload local reference video for R2V")
+                    
+                    elif not ref_url.startswith("http") and "/" in ref_url and not ref_url.startswith("output/"):
+                        # Likely an Object Key
+                        if uploader.is_configured:
+                            final_url = uploader.sign_url_for_api(ref_url)
+                            logger.info(f"Reference video (Object Key), signed URL: {final_url[:80]}...")
+                        else:
+                            logger.warning(f"OSS not configured, cannot sign Object Key: {ref_url}")
+                            
+                    processed_ref_urls.append(final_url)
+                
+                ref_video_urls = processed_ref_urls
+                
                 shot_type = kwargs.get('shot_type', 'multi') # Default to multi for R2V as per PRD
                 
                 video_url = self._generate_wan_r2v_http(

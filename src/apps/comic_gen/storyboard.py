@@ -4,6 +4,7 @@ from typing import Dict, Any, List
 from .models import StoryboardFrame, Character, Scene, Prop, GenerationStatus, ImageAsset, ImageVariant
 from ...models.image import WanxImageModel
 from ...utils import get_logger
+from ...utils.oss_utils import is_object_key
 
 logger = get_logger(__name__)
 
@@ -94,11 +95,14 @@ class StoryboardGenerator:
                     logger.info(f"[Storyboard] Character '{char.name}' reference: source={source}, url={target_url}")
                     
                     if target_url:
-                        potential_path = os.path.join("output", target_url)
-                        if os.path.exists(potential_path):
-                            asset_ref_paths.append(os.path.abspath(potential_path))
-                        elif os.path.exists(target_url):
-                            asset_ref_paths.append(os.path.abspath(target_url))
+                        if is_object_key(target_url):
+                            asset_ref_paths.append(target_url)
+                        else:
+                            potential_path = os.path.join("output", target_url)
+                            if os.path.exists(potential_path):
+                                asset_ref_paths.append(os.path.abspath(potential_path))
+                            elif os.path.exists(target_url):
+                                asset_ref_paths.append(os.path.abspath(target_url))
             
             # Add scene reference image
             scene_url = None
@@ -111,11 +115,14 @@ class StoryboardGenerator:
                     scene_url = scene.image_url
                 
                 if scene_url:
-                    potential_path = os.path.join("output", scene_url)
-                    if os.path.exists(potential_path):
-                        asset_ref_paths.append(os.path.abspath(potential_path))
-                    elif os.path.exists(scene_url):
-                        asset_ref_paths.append(os.path.abspath(scene_url))
+                    if is_object_key(scene_url):
+                        asset_ref_paths.append(scene_url)
+                    else:
+                        potential_path = os.path.join("output", scene_url)
+                        if os.path.exists(potential_path):
+                            asset_ref_paths.append(os.path.abspath(potential_path))
+                        elif os.path.exists(scene_url):
+                            asset_ref_paths.append(os.path.abspath(scene_url))
         
         # Collect character descriptions for prompt building
         for char_id in frame.character_ids:
@@ -139,6 +146,10 @@ class StoryboardGenerator:
             if frame.camera_movement:
                 prompt += f", {frame.camera_movement}"
             prompt += "."
+        else:
+            # If prompt is provided by user/LLM, ensure character descriptions are still present for I2I consistency
+            if char_text and char_text not in prompt:
+                prompt = f"{prompt} Characters: {char_text}."
         
         # Store the optimized prompt
         frame.image_prompt = prompt
@@ -161,6 +172,7 @@ class StoryboardGenerator:
                 
                 # Use I2I if reference images are available
                 # Pass collected asset paths to model
+                logger.info(f"[Storyboard] Calling model.generate with {len(asset_ref_paths)} reference images")
                 self.model.generate(prompt, output_path, ref_image_paths=asset_ref_paths, size=effective_size)
                 
                 # Store relative path for frontend serving

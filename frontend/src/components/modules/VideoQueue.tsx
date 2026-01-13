@@ -98,11 +98,17 @@ function TaskCard({ task, onRemix }: { task: VideoTask; onRemix: (t: VideoTask) 
             {isProcessing && (
                 <div className="p-3 flex gap-3 items-center">
                     <div className="w-12 h-12 rounded bg-black/50 relative overflow-hidden flex-shrink-0">
-                        <img
-                            src={getDisplayUrl(task.image_url)}
-                            alt="Input"
-                            className="w-full h-full object-cover opacity-60"
-                        />
+                        {task.image_url ? (
+                            <img
+                                src={getDisplayUrl(task.image_url)}
+                                alt="Input"
+                                className="w-full h-full object-cover opacity-60"
+                            />
+                        ) : (
+                            <div className="w-full h-full flex items-center justify-center bg-purple-900/30 text-purple-400 text-[10px] font-bold">
+                                R2V
+                            </div>
+                        )}
                         <div className="absolute inset-0 flex items-center justify-center">
                             <Loader2 className="animate-spin text-primary" size={16} />
                         </div>
@@ -138,9 +144,32 @@ function TaskCard({ task, onRemix }: { task: VideoTask; onRemix: (t: VideoTask) 
 
                     {/* Visual Comparison */}
                     <div className="flex h-32 relative group">
-                        {/* Input Image (Left) */}
+                        {/* Input Image/Videos (Left) */}
                         <div className="w-1/2 relative border-r border-white/10">
-                            <img src={getDisplayUrl(task.image_url)} alt="Input" className="w-full h-full object-cover" />
+                            {task.image_url ? (
+                                <img src={getDisplayUrl(task.image_url)} alt="Input" className="w-full h-full object-cover" />
+                            ) : task.reference_video_urls && task.reference_video_urls.length > 0 ? (
+                                /* R2V: Show reference video thumbnails */
+                                <div className="w-full h-full grid grid-cols-2 gap-0.5 bg-purple-900/20">
+                                    {task.reference_video_urls.slice(0, 4).map((url, idx) => (
+                                        <div key={idx} className="relative bg-black/50 overflow-hidden">
+                                            <video
+                                                src={getAssetUrl(url)}
+                                                className="w-full h-full object-cover"
+                                                muted
+                                                preload="metadata"
+                                            />
+                                            <div className="absolute bottom-0.5 left-0.5 bg-purple-600/80 px-1 rounded text-[8px] text-white font-bold">
+                                                @{String.fromCharCode(65 + idx)}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-purple-900/10 text-purple-400/50 text-xs font-bold">
+                                    R2V Input
+                                </div>
+                            )}
                             <div className="absolute top-2 left-2 bg-black/60 px-1.5 py-0.5 rounded text-[10px] text-gray-300">Input</div>
                         </div>
 

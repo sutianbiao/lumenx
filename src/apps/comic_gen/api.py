@@ -1064,6 +1064,13 @@ class RenderFrameRequest(BaseModel):
 async def render_frame(script_id: str, request: RenderFrameRequest):
     """Renders a specific frame using composition data (I2I)."""
     try:
+        # Collect reference paths if provided
+        ref_paths = []
+        if request.reference_image_url:
+            ref_paths.append(request.reference_image_url)
+            
+        logger.info(f"[Pipeline] Rendering frame {request.frame_id} with {len(ref_paths)} explicit reference images")
+        
         updated_script = pipeline.generate_storyboard_render(
             script_id,
             request.frame_id,
@@ -1224,6 +1231,30 @@ async def polish_video_prompt(request: PolishVideoPromptRequest):
     try:
         processor = ScriptProcessor()
         polished_prompt = processor.polish_video_prompt(request.draft_prompt)
+        return {"polished_prompt": polished_prompt}
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+class RefSlot(BaseModel):
+    description: str  # Character name, e.g., "雷震", "白兔"
+
+
+class PolishR2VPromptRequest(BaseModel):
+    draft_prompt: str
+    slots: List[RefSlot]
+
+
+@app.post("/video/polish_r2v_prompt")
+async def polish_r2v_prompt(request: PolishR2VPromptRequest):
+    """Polishes a R2V (Reference-to-Video) prompt using LLM with character slot information."""
+    try:
+        processor = ScriptProcessor()
+        # Convert slots to dict format for LLM
+        slot_info = [{"description": s.description} for s in request.slots]
+        polished_prompt = processor.polish_r2v_prompt(request.draft_prompt, slot_info)
         return {"polished_prompt": polished_prompt}
     except Exception as e:
         import traceback

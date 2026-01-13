@@ -451,14 +451,18 @@ function StoryboardInspector() {
                     const propImageCount = selectedProps?.filter((p: any) => p.image_url).length || 0;
 
                     const referenceCount = (sceneHasImage ? 1 : 0) + charImageCount + propImageCount;
-                    const isLimitReached = referenceCount >= 3;
+
+                    // Dynamic limit based on model
+                    const i2iModel = currentProject?.model_settings?.i2i_model;
+                    const referenceLimit = i2iModel === 'wan2.6-image' ? 4 : 3;
+                    const isLimitReached = referenceCount >= referenceLimit;
 
                     return (
                         <>
                             <div className="flex justify-between items-center">
                                 <label className="text-xs font-bold text-gray-500 uppercase">Reference Assets</label>
                                 <span className={`text-[10px] ${isLimitReached ? "text-yellow-500 font-bold" : "text-gray-500"}`}>
-                                    {referenceCount}/3 Images
+                                    {referenceCount}/{referenceLimit} Images
                                 </span>
                             </div>
 
@@ -482,8 +486,8 @@ function StoryboardInspector() {
                                         // If current didn't, we gain 1.
                                         const predictedCount = (newSceneHasImage ? 1 : 0) + charImageCount + propImageCount;
 
-                                        if (predictedCount > 3) {
-                                            alert("Cannot select this scene: Reference image limit (3) would be exceeded. Deselect some characters or props first.");
+                                        if (predictedCount > referenceLimit) {
+                                            alert(`Cannot select this scene: Reference image limit (${referenceLimit}) would be exceeded. Deselect some characters or props first.`);
                                             return;
                                         }
                                         updateFrame({ scene_id: newSceneId });

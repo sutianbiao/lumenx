@@ -80,6 +80,12 @@ class WanxImageModel(ImageGenModel):
         # model_name is already handled above, remove from kwargs if present
         kwargs.pop('model_name', None)
         
+        # Determine reference image limit based on model
+        ref_limit = 4 if final_model_name == 'wan2.6-image' else 3
+        if len(all_ref_paths) > ref_limit:
+            logger.warning(f"Limiting reference images from {len(all_ref_paths)} to {ref_limit} for model {final_model_name}")
+            all_ref_paths = all_ref_paths[:ref_limit]
+        
         logger.info(f"Starting image generation...")
         logger.info(f"Prompt: {prompt}")
         logger.info(f"Model: {final_model_name}, Size: {size}, N: {n}")
@@ -196,7 +202,10 @@ class WanxImageModel(ImageGenModel):
         
         # Add reference images (upload to OSS first if local paths)
         if ref_image_paths:
-            for path in ref_image_paths[:3]:  # Limit to 3 images
+            # Limit is already handled in generate(), but we keep a safety slice here
+            # This method is specifically for wan2.6-image which supports 4 images
+            ref_limit = 4
+            for path in ref_image_paths[:ref_limit]:
                 if os.path.exists(path):
                     # Upload local file to OSS and get signed URL for AI API
                     uploader = OSSImageUploader()
@@ -380,10 +389,11 @@ class WanxImageModel(ImageGenModel):
             
             logger.info(f"DEBUG: ref_image_urls count: {len(ref_image_urls)}")
             
-            # Limit to 3 images to avoid "InvalidParameter" error (suspected limit)
-            if len(ref_image_urls) > 3:
-                logger.warning(f"Limiting reference images from {len(ref_image_urls)} to 3")
-                ref_image_urls = ref_image_urls[:3]
+            # Limit is already handled in generate(), but we keep a safety slice here
+            ref_limit = 4 if model_name == 'wan2.6-image' else 3
+            if len(ref_image_urls) > ref_limit:
+                logger.warning(f"Limiting reference images from {len(ref_image_urls)} to {ref_limit}")
+                ref_image_urls = ref_image_urls[:ref_limit]
             
             call_args['images'] = ref_image_urls
 

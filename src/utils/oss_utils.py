@@ -94,6 +94,7 @@ class OSSImageUploader:
         if cls._instance is None:
             cls._instance = super().__new__(cls)
             cls._instance._initialized = False
+            cls._instance._url_cache = {}  # (object_key, expires) -> (signed_url, timestamp)
         return cls._instance
     
     def __init__(self):
@@ -205,7 +206,19 @@ class OSSImageUploader:
             return ""
         
         try:
+            # Cache check: reuse signed URL if it's still valid (with 10 min buffer)
+            cache_key = (object_key, expires)
+            now = time.time()
+            if cache_key in self._url_cache:
+                cached_url, timestamp = self._url_cache[cache_key]
+                # If the URL was generated recently enough (at least 10 mins left before expiry)
+                if now - timestamp < (expires - 600):
+                    return cached_url
+
             url = self.bucket.sign_url('GET', object_key, expires)
+            
+            # Update cache
+            self._url_cache[cache_key] = (url, now)
             return url
         except Exception as e:
             logger.error(f"Failed to generate signed URL for {object_key}: {e}")
@@ -214,7 +227,7 @@ class OSSImageUploader:
     def sign_url_for_display(self, object_key: str) -> str:
         """Generate signed URL for frontend display (2 hours validity)."""
         signed_url = self.generate_signed_url(object_key, SIGN_URL_EXPIRES_DISPLAY)
-        print(f"DEBUG: sign_url_for_display('{object_key}') -> '{signed_url}'")
+        # print(f"DEBUG: sign_url_for_display('{object_key}') -> '{signed_url}'")
         return signed_url
 
 

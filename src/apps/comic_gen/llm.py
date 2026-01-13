@@ -707,3 +707,81 @@ Return ONLY the polished prompt text.
             logger.error(f"Failed to polish video prompt: {e}")
             traceback.print_exc()
             raise e
+
+    def polish_r2v_prompt(self, draft_prompt: str, slots: List[Dict[str, str]]) -> str:
+        """
+        Polishes a R2V (Reference-to-Video) prompt using Qwen-Plus.
+        R2V requires explicit character references using character1, character2, character3 tags.
+        """
+        if not self.api_key:
+            return f"Polished: {draft_prompt} (Mock)"
+
+        # Build slot context - using character1/2/3 format
+        slot_context = []
+        for i, slot in enumerate(slots):
+            char_id = f"character{i + 1}"
+            slot_context.append(f"- {char_id}: {slot['description']}")
+        slot_context_str = "\n".join(slot_context) if slot_context else "No reference videos provided."
+
+        system_prompt = f"""# Role
+You are a prompt engineer for the Wan 2.6 Reference-to-Video model.
+
+# Context
+The R2V (Reference-to-Video) model generates video clips by combining reference character videos with a text prompt.
+The user has uploaded the following reference videos:
+{slot_context_str}
+
+# Task
+Rewrite the user's input prompt into a structured format strictly following these rules:
+
+1. **REPLACE character names with their ID**: Use "character1" for the first character, "character2" for the second, "character3" for the third.
+2. **STRUCTURE**: Use this format:
+   - Scene setup (environment, lighting, mood)
+   - Character action (what character1/character2/character3 are doing, their expressions, movements)
+   - Camera movement (if applicable)
+3. **DIALOGUE FORMAT**: If the prompt includes dialogue, format it as: 'character1 says: "dialogue content"'
+4. **PRESERVE**: Keep the original intent and emotional tone.
+5. **ENHANCE**: Add visual details for dramatic effect (lighting, speed descriptors like "slowly", "rapidly").
+
+# Output Rules
+- Return ONLY the polished prompt text.
+- Do NOT include any explanations or meta-text.
+- Write in English for better model compatibility.
+- Keep the prompt concise but descriptive (50-150 words optimal).
+
+# Examples
+
+INPUT: 主角从门里跳出来说话
+SLOTS: character1 = "White rabbit", character2 = "Robot dog"
+OUTPUT: character1 bursts through the door with an exaggerated jump, landing energetically with ears perked up. The room is dimly lit with warm ambient light streaming through dusty windows. character1 looks around excitedly and says: "I made it just in time!" Camera follows the jump with a slight tilt.
+
+INPUT: 两个角色在街上对峙
+SLOTS: character1 = "Warrior in armor", character2 = "Dark mage"
+OUTPUT: Under dramatic stormy skies, character1 stands in the middle of a cobblestone street, sword drawn, facing character2 who hovers slightly with dark energy swirling around their hands. The wind howls as they lock eyes. character1 takes a slow, deliberate step forward. Static camera with tension-building composition.
+"""
+
+        try:
+            import dashscope
+            dashscope.api_key = self.api_key
+
+            response = dashscope.Generation.call(
+                model='qwen-plus',
+                messages=[
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user', 'content': draft_prompt}
+                ],
+                result_format='message'
+            )
+
+            if response.status_code == 200:
+                polished = response.output.choices[0].message.content.strip()
+                logger.info(f"R2V Polished Prompt: {polished}")
+                return polished
+            else:
+                logger.error(f"DashScope API Error: {response.code} - {response.message}")
+                raise Exception(f"DashScope API Error: {response.message}")
+
+        except Exception as e:
+            logger.error(f"Failed to polish R2V prompt: {e}")
+            traceback.print_exc()
+            raise e
