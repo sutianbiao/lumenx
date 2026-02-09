@@ -179,7 +179,7 @@ export default function StoryboardComposer() {
                     const char = currentProject.characters?.find((c: any) => c.id === charId);
                     if (char) {
                         // Priority: three_view_asset > full_body_asset > headshot_asset > legacy fields
-                        let charUrl = getSelectedVariantUrl(char.three_view_asset)
+                        const charUrl = getSelectedVariantUrl(char.three_view_asset)
                             || getSelectedVariantUrl(char.full_body_asset)
                             || getSelectedVariantUrl(char.headshot_asset)
                             || char.three_view_image_url

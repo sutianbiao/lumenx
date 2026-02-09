@@ -1,251 +1,191 @@
-# AI 短漫剧制作平台
+<!-- Banner Placeholder -->
+<div align="center">
+  <img src="docs/images/LumenX Studio Banner.jpeg" alt="LumenX Studio Banner" width="100%" />
+</div>
 
-一个基于 AI 的短漫剧/漫画视频制作平台，支持从剧本到成片的完整工作流。
+<div align="center">
 
-## 技术栈
+# LumenX Studio
 
-**前端**: Next.js 14 + React 18 + TypeScript + Tailwind CSS + Three.js  
-**后端**: FastAPI + Python 3.11+  
-**AI 服务**: 阿里云通义千问(Qwen) + 万相(Wanx)
+### AI 原生短漫剧创作平台
+**Render Noise into Narrative**
 
-## 快速开始
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/)
+[![Node](https://img.shields.io/badge/node-18%2B-green)](https://nodejs.org/)
+[![GitHub Stars](https://img.shields.io/github/stars/alibaba/lumenx?style=social)](https://github.com/alibaba/lumenx)
+
+[English](README_EN.md) | [中文](README.md) | [用户手册](USER_MANUAL.md) | [贡献指南](CONTRIBUTING.md)
+
+</div>
+
+---
+
+LumenX Studio 是一个**AI 短漫剧一站式生产平台**。它能够将小说文本转化为动态视频，打通了从剧本分析、角色定制、分镜绘制到视频合成的完整创作链路。
+
+LumenX Studio将 **资产提取—>风格定调—>资产生成—>分镜脚本构造->分镜图生成—>分镜视频生成** 的全链路SOP天然与该平台功能集成，在提供完善功能的基础上融入短漫剧行业Know-How，方便大家快速制作出质量过关的AI短片，大大提升生产效率。
+
+本平台天然集成 阿里的Qwen & Wanx 系列模型能力，致力于提供智能便捷、灵活可控的漫剧制作体验，无需频繁切换网页或App，使创作者能够一站式地完成短漫剧制作。
+
+---
+
+## ✨ 核心亮点
+
+| 能力 | 描述 |
+|------|------|
+| 📝 **深度剧本分析** | 基于 LLM 自动提取角色、场景、道具，生成专业分镜脚本 |
+| 🎨 **可控美术指导** | 支持自定义视觉风格，保持全片画风统一 |
+| 🎬 **可视化分镜** | 拖拽式分镜编辑器，所见即所得地组合人物、背景与特效 |
+| 🎥 **多模态生成** | 集成通义万相 (Wanx) 等模型，支持文生图、图生视频 |
+| 🎵 **智能视听合成** | 自动生成角色配音 (TTS)、音效 (SFX) 并合成最终视频 |
+
+---
+
+## 📸 产品演示
+
+<div align="center">
+  <!-- 待补充演示 GIF -->
+  <img src="docs/images/demo.gif" alt="LumenX Studio Demo" width="100%" />
+</div>
+
+---
+
+## 🏗️ 系统架构
+
+LumenX Studio 采用前后端分离的现代化架构，确保了扩展性与性能。
+
+<div align="center">
+  <!-- 架构图 -->
+  <img src="docs/images/architecture.svg" alt="System Architecture" width="80%" />
+</div>
+
+**技术栈：**
+- **Frontend**: Next.js 14 + React 18 + TypeScript + Tailwind CSS
+- **Backend**: FastAPI + Python 3.11+
+- **AI Core**: Alibaba Cloud Qwen (Logic) + Wanx (Visuals)
+- **Render**: Three.js (Canvas) + FFmpeg (Video Processing)
+
+---
+
+## 🚀 快速开始
 
 ### 1. 环境准备
 
-复制 `.env.example` 为 `.env` 并填入你的 API Keys：
+- **Python**: 3.11+
+- **Node.js**: 18+
+- **FFmpeg**: 必须安装 (用于视频处理)
+
+### 2. 克隆项目
+
+```bash
+git clone https://github.com/alibaba/lumenx.git
+cd lumenx
+```
+
+### 3. 配置密钥
+
+复制配置文件并填入 API Key（需开通阿里云百炼服务）：
 
 ```bash
 cp .env.example .env
-# 编辑 .env 文件，填入真实的 API Keys
+# 编辑 .env 文件，填入 DASHSCOPE_API_KEY
 ```
 
-### 2. 安装 FFmpeg（仅源码开发模式需要）
-
-> **注意**: 如果您使用的是打包好的应用程序（.app 或 .exe），**无需安装 FFmpeg**，应用已内置。
-
-如果您是在源码环境下开发运行，FFmpeg 用于视频拼接和导出。请根据您的操作系统安装：
-
-**macOS:**
-```bash
-brew install ffmpeg
-```
-
-**Windows:**
-```bash
-# 方式1: 使用 winget
-winget install ffmpeg
-
-# 方式2: 手动下载
-# 访问 https://www.gyan.dev/ffmpeg/builds/
-# 下载 ffmpeg-release-essentials.zip
-# 解压后将 bin 目录添加到系统 PATH
-```
-
-**Linux (Ubuntu/Debian):**
-```bash
-sudo apt update && sudo apt install ffmpeg
-```
-
-**验证安装:**
-```bash
-ffmpeg -version
-```
-
-### 3. 后端启动
+### 4. 启动后端
 
 ```bash
-# 安装 Python 依赖
+# 安装依赖
 pip install -r requirements.txt
 
 # 创建输出目录
 mkdir -p output/uploads
 
-# 启动 FastAPI 服务
-python -m uvicorn src.apps.comic_gen.api:app --reload --host 0.0.0.0 --port 8000
+# 启动服务 (http://localhost:8000)
+./start_backend.sh
 ```
 
-后端服务将在 http://localhost:8000 启动  
-API 文档: http://localhost:8000/docs
-
-### 4. 前端启动
+### 5. 启动前端
 
 ```bash
 cd frontend
 
-# 安装依赖
-npm install
-
-# 启动开发服务器
-npm run dev
+# 安装依赖 & 启动服务 (http://localhost:3000)
+npm install && npm run dev
 ```
 
-前端应用将在 http://localhost:3000 启动
+---
 
-## 项目结构
+## 📖 文档中心
 
-```
-├── frontend/              # Next.js 前端应用
-│   ├── src/
-│   │   ├── app/          # App Router 页面
-│   │   ├── components/   # React 组件
-│   │   ├── lib/          # 工具库
-│   │   └── store/        # 状态管理
-│   └── package.json
-├── src/                   # Python 后端代码
-│   ├── apps/comic_gen/   # 核心应用
-│   ├── models/           # AI 模型封装
-│   ├── utils/            # 工具函数
-│   └── config.py
-├── demand/                # 文档
-│   ├── 平台核心代码说明.md
-│   └── AI漫剧制作全流程SOP.md
-├── requirements.txt       # Python 依赖
-└── .env.example          # 环境变量模板
-```
+- **[用户手册](USER_MANUAL.md)**: 必读！详细的功能使用说明。
+- **[API 文档](http://localhost:8000/docs)**: 后端接口定义的 Swagger UI。
 
-## 核心功能
+---
 
-1. **剧本分析**: 输入小说/剧本，AI 自动提取角色、场景、道具和分镜
-2. **美术指导**: AI 推荐视觉风格，支持自定义风格参数
-3. **素材生成**: 为角色、场景、道具生成 AI 图片
-4. **分镜编辑**: 可视化画布，拖拽素材组合分镜
-5. **视频生成**: 基于分镜图生成动态视频
-6. **音频混音**: 角色配音 + 环境音效 + 背景音乐
-7. **成片导出**: 合并视频和音频，导出最终作品
+## ⚙️ 进阶配置
 
-## 详细文档
+<details>
+<summary>点击展开详细配置说明</summary>
 
-- [用户手册](USER_MANUAL.md) — **首次使用必读**
-- [平台核心代码说明](demand/平台核心代码说明.md)
-- [云创 AI 漫剧制作全流程 SOP](demand/AI漫剧制作全流程SOP.md)
+### OSS 对象存储（推荐）
+为了安全和性能，建议配置阿里云 OSS 存储生成的媒体文件：
 
-## API 文档
+1. 创建 **私有 (Private)** Bucket
+2. 在 `.env` 或应用设置中配置：
+   ```env
+   ALIBABA_CLOUD_ACCESS_KEY_ID=...
+   ALIBABA_CLOUD_ACCESS_KEY_SECRET=...
+   # 在应用内配置 Bucket 名称和 Endpoint
+   ```
 
-启动后端服务后，访问 http://localhost:8000/docs 查看完整的 API 文档。
+### 配置文件路径
+- **开发模式**: 项目根目录 `.env`
+- **打包应用**: 用户主目录 `~/.lumen-x/config.json`
 
-## 配置说明
+</details>
 
-### API Key 配置
+---
 
-应用支持两种配置存储方式，根据运行模式自动选择：
-
-#### 开发模式 (Development)
-
-配置存储在项目根目录的 `.env` 文件中：
-
-```bash
-# 通义千问/万相 API Key (必需)
-DASHSCOPE_API_KEY=sk-xxxxxxxx
-
-# 阿里云 RAM 用户 Access Key (OSS 功能需要)
-ALIBABA_CLOUD_ACCESS_KEY_ID=LTAIxxx
-ALIBABA_CLOUD_ACCESS_KEY_SECRET=xxx
-```
-
-#### 打包应用模式 (Packaged App)
-
-配置存储在用户主目录下，确保配置不会泄露：
-
-| 操作系统 | 配置文件路径 |
-|---------|-------------|
-| macOS/Linux | `~/.lumen-x/config.json` |
-| Windows | `%USERPROFILE%\.lumen-x\config.json` |
-
-打包应用时，需要设置环境变量 `LUMEN_X_PACKAGED=true` 来启用此模式。
-
-#### 通过应用内设置
-
-无论哪种模式，都可以通过应用内设置界面配置：
-1. 进入项目页面
-2. 点击左上角 🔑 图标
-3. 填入配置信息并保存
-
-### OSS 配置（推荐）
-
-OSS 用于上传生成的图片/视频到云端，采用 **Private OSS + 动态签名 URL** 策略保障数据安全：
-
-| 配置项 | 说明 | 示例/默认值 |
-|-------|------|------------|
-| OSS Bucket Name | Bucket 名称 | `my-comic-bucket` |
-| OSS Endpoint | 地域节点 | `oss-cn-hangzhou.aliyuncs.com` |
-| OSS Base Path | 存储路径前缀 | `lumenx` (默认) |
-
-> **重要安全说明**:
-> - Bucket 必须设置为 **Private（私有读写）**，严禁使用"公共读"
-> - 系统存储 Object Key，返回 API 时自动生成 2 小时有效期的签名 URL
-> - 传递给 AI 模型的参考图使用 30 分钟有效期的签名 URL
-
-> **获取方式**: 访问 [阿里云 OSS 控制台](https://oss.console.aliyun.com/overview) 创建 Bucket
-
-## 用户数据目录
-
-所有用户相关数据（配置、日志）统一存储在用户主目录下：
-
-| 操作系统 | 目录路径 |
-|---------|----------|
-| macOS/Linux | `~/.lumen-x/` |
-| Windows | `%USERPROFILE%\.lumen-x\` |
-
-目录结构：
-```
-~/.lumen-x/
-├── config.json    # 配置文件（打包模式）
-└── logs/
-    └── app.log    # 应用日志
-```
-
-## 文件存储位置
-
-所有生成的文件保存在 `output/` 目录下：
+## 📁 目录结构
 
 ```
-output/
-├── assets/              # 角色、场景、道具图片
-│   ├── characters/      # 角色立绘
-│   ├── scenes/          # 场景图片
-│   └── props/           # 道具图片
-├── storyboard/          # 分镜渲染图
-├── outputs/videos/      # 生成的视频片段
-├── video/               # 合并后的最终视频
-├── uploads/             # 用户上传的文件
-└── video_inputs/        # 视频生成的输入图片快照
+lumenx/
+├── frontend/          # Next.js 前端工程
+├── src/               # Python 后端核心
+│   ├── apps/         # 业务逻辑
+│   ├── models/       # AI 模型接口
+│   └── utils/        # 工具库
+├── output/            # (自动生成) 项目输出目录
 ```
 
-> **备份提示**: 定期备份 `output/` 目录和 `~/.lumen-x/` （用户数据）以防止数据丢失
+---
 
-## 日志与调试
+## 🤝 参与贡献
 
-### 查看后端日志
+我们非常欢迎社区贡献！请先阅读 [贡献指南](CONTRIBUTING.md) 了解代码规范和提交流程。
 
-日志会实时输出到启动后端的终端窗口，包含：
-- `[MERGE]` - 视频合并相关日志
-- `[Storyboard]` - 分镜生成日志
-- `INFO/WARNING/ERROR` - 通用日志级别
+- **Bug 反馈**: 请提交 [GitHub Issues](https://github.com/alibaba/lumenx/issues)
+- **功能建议**: 欢迎在 [Discussions](https://github.com/alibaba/lumenx/discussions) 中讨论
 
-**开发模式查看日志：**
-```bash
-# 日志直接输出在终端
-./start_backend.sh
-```
+## 👤 作者与联系方式
 
-**打包应用查看日志：**
-- 日志存储在 `~/.lumen-x/logs/app.log`（详见[用户手册 - 日志查看](USER_MANUAL.md#-日志查看)）
+本项目由 **星莲 (StarLotus)** 主导开发与维护。
 
-### 常见错误排查
+如果您在使用过程中遇到问题，或有任何建议，欢迎通过以下方式联系：
 
-| 错误信息 | 可能原因 | 解决方案 |
-|---------|---------|---------|
-| `FFmpeg not found` | 未安装 FFmpeg | 参考上方安装说明 |
-| `No videos selected to merge` | 未选择视频 | 确保每个分镜都选择了视频 |
-| `OSS credentials not configured` | 未配置 OSS | 在设置中填写 OSS 信息 |
-| `API Key not found` | 未配置 API Key | 在设置中填写 DashScope Key |
+- **反馈与交流**: [GitHub Issues](https://github.com/alibaba/lumenx/issues)
+- **技术讨论**: [GitHub Discussions](https://github.com/alibaba/lumenx/discussions)
+- **邮件联系**: [zhangjunhe.zjh@alibaba-inc.com](mailto:zhangjunhe.zjh@alibaba-inc.com)
 
-## 常见问题
+---
 
-## 许可证
+## 📄 许可证
 
-[根据项目实际情况填写]
+本项目基于 [MIT License](LICENSE) 开源。
 
-## 联系方式
+---
 
-[根据项目实际情况填写]
+<div align="center">
+  Made with ❤️ by Alibaba Group
+</div>
+
