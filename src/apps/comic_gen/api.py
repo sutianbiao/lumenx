@@ -42,6 +42,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Disposition"],  # Allow browsers to access Content-Disposition for downloads
 )
 
 # Middleware to add cache headers to static files
